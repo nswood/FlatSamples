@@ -5,6 +5,7 @@ import pandas as pd
 import h5py
 import json
 import uproot
+import os,sys
 
 # Defines important variables
 
@@ -13,6 +14,9 @@ file_num = 2
 fill_factor = 1.0
 pt_range = [200., 800.]
 mass_range = [40., 240.]
+signal_list = ['flat_qq']
+background_list = ['QCD_HT_1000to1500']
+output_name = "test.z"
 
 # Opens json files for signal and background
 
@@ -56,8 +60,9 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
 
     df_sig_to_concat = []
     for sig in iFiles_sig:
+        file_list = os.listdir(payload['samples'][sig])
         for i in range(file_num):
-            data_set = payload['samples'][sig]['base']+payload['samples'][sig]['files'][i]
+            data_set = payload['samples'][sig]+file_list[i]
             arr_sig_to_concat_temp = []
             file1 = uproot.open(data_set)
             tree = file1['tree']
@@ -78,6 +83,9 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
                 df_sig_temp[column] = branches[column].reshape(-1, 1)
             df_sig_temp['label'] = 1
             df_sig_temp = df_sig_temp[columns]
+            pt_col = df_sig_temp[weight[0]].values.reshape(-1, 1)
+            mass_col = df_sig_temp[weight[1]].values.reshape(-1, 1)
+            df_sig_temp = df_sig_temp[np.logical_and(np.logical_and(np.greater(pt_col, pt_range[0]), np.less(pt_col, pt_range[1])), np.logical_and(np.greater(mass_col, mass_range[0]), np.less(mass_col, mass_range[1])))]
             df_sig_to_concat.append(df_sig_temp)
     df_sig = pd.concat(df_sig_to_concat)
 
@@ -93,8 +101,9 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
     df_remade_bkg = pd.DataFrame(columns=columns)
     for bkg in iFiles_bkg:
         df_bkg_to_concat = []
+        file_list = os.listdir(payload['samples'][bkg])
         for i in range(file_num):
-            data_set = payload['samples'][bkg]['base'] + payload['samples'][bkg]['files'][i]
+            data_set = payload['samples'][bkg]+file_list[i]
             arr_bkg_to_concat_temp = []
             file1 = uproot.open(data_set)
             tree = file1['tree']
@@ -155,4 +164,4 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
 
 
 # Remakes data sets
-remake(['flat_qq'], ['flat_qq'], '.test.z')
+remake(signal_list, background_list, output_name)
