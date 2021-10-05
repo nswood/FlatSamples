@@ -10,7 +10,8 @@ import os,sys
 # Defines important variables
 
 particle_num = 50
-file_num = 2
+file_num_sig = 2
+file_num_bkg = 10
 fill_factor = 1.0
 pt_range = [200., 800.]
 mass_range = [40., 240.]
@@ -61,7 +62,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
     df_sig_to_concat = []
     for sig in iFiles_sig:
         file_list = os.listdir(payload['samples'][sig])
-        for i in range(file_num):
+        for i in range(file_num_sig):
             data_set = payload['samples'][sig]+file_list[i]
             arr_sig_to_concat_temp = []
             file1 = uproot.open(data_set)
@@ -102,7 +103,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
     for bkg in iFiles_bkg:
         df_bkg_to_concat = []
         file_list = os.listdir(payload['samples'][bkg])
-        for i in range(file_num):
+        for i in range(file_num_bkg):
             data_set = payload['samples'][bkg]+file_list[i]
             arr_bkg_to_concat_temp = []
             file1 = uproot.open(data_set)
