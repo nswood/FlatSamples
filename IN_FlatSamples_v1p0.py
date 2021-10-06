@@ -16,8 +16,8 @@ from keras.models import Model
 
 print("Extracting")
 
-fOne = h5py.File("../data/test.z", 'r')
-totalData = fOne["deepDoubleTau"][:]
+fOne = h5py.File("../data/fullQCD_Zqq", 'r')
+totalData = fOne["deepDoubleQ"][:]
 print(totalData.shape)
 
 # Sets controllable values
@@ -25,7 +25,7 @@ print(totalData.shape)
 particlesConsidered = 50
 entriesPerParticle = 4
 
-eventDataLength = 10
+eventDataLength = 7
 
 decayTypeColumn = -1
 

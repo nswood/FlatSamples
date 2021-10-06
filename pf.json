@@ -2,9 +2,9 @@
     "samples": {
         "flat_qq": "/eos/uscms/store/user/separk/flatPaper/VectorZPrimeAToQQA_M175_gq1p5_LO_flat_rhocut_slc6_amd64_gcc630_CMSSW_9_3_15_patch1_tarball.tar.xz/ntupler/",
         "QCD_HT_1000to1500": "/eos/uscms/store/user/separk/flatPaper/QCD_HT1000to1500_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
-        "QCD_HT_1500to2000": "/eos/uscms/store/user/separk/flatPaper/QCD_HT2000toInf_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
-        "QCD_HT2000toInf": "/eos/uscms/store/user/separk/flatPaper/QCD_HT300to500_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
-        "QCD_HT300to500": "/eos/uscms/store/user/separk/flatPaper/QCD_HT500to700_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
+        "QCD_HT_2000toInf": "/eos/uscms/store/user/separk/flatPaper/QCD_HT2000toInf_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
+        "QCD_HT300to500": "/eos/uscms/store/user/separk/flatPaper/QCD_HT300to500_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
+        "QCD_HT500to700": "/eos/uscms/store/user/separk/flatPaper/QCD_HT500to700_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/",
         "QCD_HT700to1000": "/eos/uscms/store/user/separk/flatPaper/QCD_HT700to1000_slc6_amd64_gcc630_CMSSW_9_3_16_tarball.tar.xz/ntupler/"
     },
     "weight": [

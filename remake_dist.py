@@ -10,14 +10,14 @@ import os,sys
 # Defines important variables
 
 particle_num = 50
-file_num_sig = 2
-file_num_bkg = 10
+file_num_sig = 1000
+file_num_bkg = 1000
 fill_factor = 1.0
 pt_range = [200., 800.]
 mass_range = [40., 240.]
 signal_list = ['flat_qq']
-background_list = ['QCD_HT_1000to1500']
-output_name = "test.z"
+background_list = ['QCD_HT_1000to1500', 'QCD_HT_2000toInf', 'QCD_HT300to500', 'QCD_HT500to700', 'QCD_HT700to1000']
+output_name = "data/fullQCD_Zqq.h5"
 
 # Opens json files for signal and background
 
@@ -81,7 +81,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
             arr_sig_temp = np.vstack(arr_sig_to_concat_temp)
             df_sig_temp = pd.DataFrame(arr_sig_temp, columns=part_features)
             for column in ss + weight:
-                df_sig_temp[column] = branches[column].reshape(-1, 1)
+                df_sig_temp[column] = np.array(branches[column]).reshape(-1, 1)
             df_sig_temp['label'] = 1
             df_sig_temp = df_sig_temp[columns]
             pt_col = df_sig_temp[weight[0]].values.reshape(-1, 1)
@@ -122,7 +122,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
             arr_bkg_temp = np.vstack(arr_bkg_to_concat_temp)
             df_bkg_temp = pd.DataFrame(arr_bkg_temp, columns=part_features)
             for column in ss + weight:
-                df_bkg_temp[column] = branches[column].reshape(-1, 1)
+                df_bkg_temp[column] = np.array(branches[column]).reshape(-1, 1)
             df_bkg_temp['label'] = 0
             df_bkg_temp = df_bkg_temp[columns]
             df_bkg_to_concat.append(df_bkg_temp)
@@ -159,7 +159,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
     # Open HDF5 file and write dataset
 
     h5_file = h5py.File(iFile_out, 'w')
-    h5_file.create_dataset('deepDoubleTau', data=arr, compression='lzf')
+    h5_file.create_dataset('deepDoubleQ', data=arr, compression='lzf')
     h5_file.close()
     del h5_file
 
