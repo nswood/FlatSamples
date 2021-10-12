@@ -17,7 +17,7 @@ pt_range = [200., 800.]
 mass_range = [40., 240.]
 signal_list = ['flat_qq']
 background_list = ['QCD_HT_1000to1500', 'QCD_HT_2000toInf', 'QCD_HT300to500', 'QCD_HT500to700', 'QCD_HT700to1000']
-output_name = "data/fullQCD_Zqq.h5"
+output_name = "data/FullQCD_FullSig_Zqq.h5"
 
 # Opens json files for signal and background
 
@@ -63,6 +63,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
     for sig in iFiles_sig:
         file_list = os.listdir(payload['samples'][sig])
         for i in range(file_num_sig):
+            print(i)
             data_set = payload['samples'][sig]+file_list[i]
             arr_sig_to_concat_temp = []
             file1 = uproot.open(data_set)
@@ -104,6 +105,7 @@ def remake(iFiles_sig, iFiles_bkg, iFile_out):
         df_bkg_to_concat = []
         file_list = os.listdir(payload['samples'][bkg])
         for i in range(file_num_bkg):
+            print(i)
             data_set = payload['samples'][bkg]+file_list[i]
             arr_bkg_to_concat_temp = []
             file1 = uproot.open(data_set)

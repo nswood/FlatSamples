@@ -5,6 +5,7 @@ import h5py
 import keras.backend as K
 import tensorflow as tf
 import json
+import setGPU
 
 # Imports neural net tools
 
@@ -16,7 +17,7 @@ from keras.models import Model
 
 print("Extracting")
 
-fOne = h5py.File("../data/fullQCD_Zqq", 'r')
+fOne = h5py.File("data/FullQCD_FullSig_Zqq.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
 print(totalData.shape)
 
@@ -25,7 +26,7 @@ print(totalData.shape)
 particlesConsidered = 50
 entriesPerParticle = 4
 
-eventDataLength = 7
+eventDataLength = 6
 
 decayTypeColumn = -1
 
@@ -36,7 +37,7 @@ validationDataLength = int(len(totalData)*0.1)
 numberOfEpochs = 100
 batchSize = 1024
 
-modelName = "IN_FlatSamples_v1p0,test"
+modelName = "IN_FlatSamples_fullQCDfullSig"
 
 # Creates Training Data
 
