@@ -17,13 +17,13 @@ from keras.models import Model
 
 print("Extracting")
 
-fOne = h5py.File("data/FullQCD_FullSig_Zqq.h5", 'r')
+fOne = h5py.File("data/FullQCD_FourthSig_Zqq_fillfactor1_100particles.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
 print(totalData.shape)
 
 # Sets controllable values
 
-particlesConsidered = 50
+particlesConsidered = 100
 entriesPerParticle = 4
 
 eventDataLength = 6
@@ -35,9 +35,9 @@ trainingDataLength = int(len(totalData)*0.8)
 validationDataLength = int(len(totalData)*0.1)
 
 numberOfEpochs = 100
-batchSize = 1024
+batchSize = 256
 
-modelName = "IN_FlatSamples_fullQCDfullSig"
+modelName = "IN_FlatSamples_fullQCDfourthSig_100particles"
 
 # Creates Training Data
 
@@ -50,10 +50,6 @@ np.random.shuffle(totalData)
 labels = totalData[:, decayTypeColumn:]
 
 particleData = totalData[:, eventDataLength:particleDataLength + eventDataLength]
-
-print(np.sum(np.array(labels))/len(labels))
-sys.exit()
-
 
 particleTrainingData = np.transpose(
     particleData[0:trainingDataLength, ].reshape(trainingDataLength, entriesPerParticle, particlesConsidered),

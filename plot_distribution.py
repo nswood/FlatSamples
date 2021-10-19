@@ -13,7 +13,7 @@ from keras.models import Model
 
 print("Extracting")
 
-fOne = h5py.File("data/FullQCD_FullSig_Zqq.h5", 'r')
+fOne = h5py.File("data/FullQCD_FourthSig_Zqq_fillfactor1_test2.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
 print(totalData.shape)
 modelName = "IN_FlatSamples_fullQCDfullSig"
