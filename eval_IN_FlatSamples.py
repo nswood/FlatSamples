@@ -1,11 +1,8 @@
-# Imports basics
-
 import numpy as np
 import h5py
 import keras.backend as K
 import tensorflow as tf
 import json
-import setGPU
 
 # Imports neural net tools
 
@@ -13,13 +10,14 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.layers import Input, Dense, GRU, Add, Concatenate, BatchNormalization, Conv1D, Lambda, Dot, Flatten
 from keras.models import Model
 
-# Opens files and reads data
 
 print("Extracting")
 
 fOne = h5py.File("data/FullQCD_FullSig_Zqq.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
-print(totalData.shape)
+print(totalData[:, 0])
+print(totalData[:, 1])
+modelName = "IN_FlatSamples_fullQCDfullSig"
 
 # Sets controllable values
 
@@ -30,47 +28,21 @@ eventDataLength = 6
 
 decayTypeColumn = -1
 
+testDataLength = int(len(totalData)*0.1)
 trainingDataLength = int(len(totalData)*0.8)
 
 validationDataLength = int(len(totalData)*0.1)
-
-numberOfEpochs = 100
-batchSize = 1024
-
-modelName = "IN_FlatSamples_fullQCDfullSig"
-
-# Creates Training Data
-
-print("Preparing Data")
-
 particleDataLength = particlesConsidered * entriesPerParticle
-
 np.random.shuffle(totalData)
 
 labels = totalData[:, decayTypeColumn:]
-
 particleData = totalData[:, eventDataLength:particleDataLength + eventDataLength]
-
-print(np.sum(np.array(labels))/len(labels))
-sys.exit()
-
-
-particleTrainingData = np.transpose(
-    particleData[0:trainingDataLength, ].reshape(trainingDataLength, entriesPerParticle, particlesConsidered),
-    axes=(0, 2, 1))
-trainingLabels = np.array(labels[0:trainingDataLength])
-
-particleValidationData = np.transpose(
-    particleData[trainingDataLength:trainingDataLength + validationDataLength, ].reshape(validationDataLength,
-                                                                                         entriesPerParticle,
-                                                                                         particlesConsidered),
-    axes=(0, 2, 1))
-validationLabels = np.array(labels[trainingDataLength:trainingDataLength + validationDataLength])
-
+testData = totalData[trainingDataLength + validationDataLength:, ]
 particleTestData = np.transpose(particleData[trainingDataLength + validationDataLength:, ].reshape(
     len(particleData) - trainingDataLength - validationDataLength, entriesPerParticle, particlesConsidered),
                                 axes=(0, 2, 1))
 testLabels = np.array(labels[trainingDataLength + validationDataLength:])
+
 
 # Defines the interaction matrices
 
@@ -151,25 +123,63 @@ model = Model(inputs=[inputParticle], outputs=[output])
 
 model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['acc'])
 
-print('Calculating')
-
-modelCallbacks = [EarlyStopping(patience=10),
-                  ModelCheckpoint(filepath="./data/"+modelName+".h5", save_weights_only=True,
-                                  save_best_only=True)]
-
-history = model.fit([particleTrainingData], trainingLabels, epochs=numberOfEpochs, batch_size=batchSize,
-                    callbacks=modelCallbacks,
-                    validation_data=([particleValidationData], validationLabels))
-
-with open("./data/"+modelName+",history.json", "w") as f:
-    json.dump(history.history,f)
-
-print("Loading weights")
 
 model.load_weights("./data/"+modelName+".h5")
-
-model.save("./data/"+modelName+",model")
-
 print("Predicting")
 
 predictions = model.predict([particleTestData])
+print(predictions)
+print(testLabels)
+predictions = [[i[0], 1-i[0]] for i in predictions]
+testLabels = np.array([[i[0], 1-i[0]] for i in testLabels])
+import matplotlib.pyplot as plt 
+from sklearn.metrics import roc_curve, auc, accuracy_score
+
+
+fpr, tpr, threshold = roc_curve(np.array(testLabels).reshape(-1), np.array(predictions).reshape(-1))
+plt.plot(fpr, tpr, lw=2.5, label="{}, AUC = {:.1f}\%".format('ZprimeAtoqq IN',auc(fpr,tpr)*100))
+plt.title('ROC Curve')
+plt.xlabel('FPR')
+plt.ylabel('TPR')
+plt.legend()
+plt.savefig('./data/'+modelName+'_ROC.jpg')
+
+
+def find_nearest(array,value):
+    idx = (np.abs(array-value)).argmin()
+    return idx, array[idx]
+
+fpr, tpr, threshold = roc_curve(np.array(testLabels).reshape(-1), np.array(predictions).reshape(-1))
+cuts = {}
+for wp in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]: # % mistag rate
+    idx, val = find_nearest(fpr, wp)
+    cuts[str(wp)] = threshold[idx] # threshold for deep double-b corresponding to ~1% mistag rate
+        
+f, ax = plt.subplots(figsize=(10,10))
+
+print(testData[:,0])
+print(testData[:,1])
+
+sculpt_vars = ['jet_eta', "jet_phi","jet_EhadOverEem","jet_sdmass", 'jet_pT', 'jet_mass']
+for i in range(len(sculpt_vars)):
+    f, ax = plt.subplots(figsize=(10,10))
+
+    for wp, cut in reversed(sorted(cuts.items())):
+        predictions = np.array(predictions)
+        ctdf = np.array([testData[pred, i] for pred in range(len(predictions)) if predictions[pred,0] > cut])
+        weight = np.array([testLabels[pred, 1] for pred in range(len(predictions)) if predictions[pred,0] > cut])
+        
+        if str(wp)=='1.0':
+            ax.hist(ctdf.flatten(), weights = weight/np.sum(weight), lw=2,
+                        histtype='step',label='No tagging applied')
+        else:
+            ax.hist(ctdf.flatten(), weights = weight/np.sum(weight), lw=2,
+                        histtype='step',label='{}%  mistagging rate'.format(float(wp)*100.))
+
+    ax.set_xlabel(sculpt_vars[i])
+    ax.set_ylabel('Normalized Scale')
+    ax.set_title('Sculpting ' + sculpt_vars[i]) 
+    ax.legend() 
+
+    f.savefig('data/hist/sculpting_' + sculpt_vars[i] + '.jpg')
+
