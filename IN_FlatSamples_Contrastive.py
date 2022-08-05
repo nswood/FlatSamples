@@ -1,9 +1,10 @@
 # Imports basics
-
 import numpy as np
 import h5py
 import json
 import setGPU
+import sklearn
+import corner
 
 # Imports neural net tools
 import itertools
@@ -12,14 +13,15 @@ import torch.nn as nn
 from torch.autograd.variable import *
 import torch.optim as optim
 from fast_soft_sort.pytorch_ops import soft_rank
+import matplotlib.pyplot as plt
 
 
 # Opens files and reads data
 
 print("Extracting")
 outdir = 'data/IN_FlatSamples_Pytorch'
-label='contrastive'
-fOne = h5py.File("data/FullQCD_FullSig_Zqq_fillfactor1_pTsdmassfilling_dRlimit08_50particlesordered_sigFill_genMatched50.h5", 'r')
+label='contrastiveBarlow'
+fOne = h5py.File("data/FullQCD_FullSig_Zqq_noFill_dRlimit08_50particlesordered_genMatched50.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
 print(totalData.shape)
 
@@ -30,10 +32,10 @@ particlesPostCut = 50
 entriesPerParticle = 4
 eventDataLength = 6
 decayTypeColumn = -1
-datapoints = 10000
+datapoints = 1400000
 trainingDataLength = int(len(totalData)*0.8)
 validationDataLength = int(len(totalData)*0.1)
-batchSize = 128
+batchSize = 4096
 
 includeeventData = False
 
@@ -48,19 +50,22 @@ particleDataLength = particlesConsidered * entriesPerParticle
 np.random.seed(42)
 np.random.shuffle(totalData)
 
-print(totalData.shape)
-trainingDataLength = int(len(totalData)*0.8)
-validationDataLength = int(len(totalData)*0.1)
+#trainingDataLength = int(datapoints*0.8)
+#validationDataLength = int(datapoints*0.1)
 
+mask = [i>40 for i in totalData[:, eventDataLength-1]]
+totalData = totalData[mask]
 
 labels = totalData[:, decayTypeColumn:]
 particleData = totalData[:, eventDataLength:particleDataLength + eventDataLength]
 eventData = totalData[:, :eventDataLength]
 jetMassData = totalData[:, eventDataLength-1] #last entry in eventData (zero indexing)
 
-# Training Data
+
+######### Training Data ###############
 eventTrainingData = np.array(eventData[0:trainingDataLength])
 jetMassTrainingData = np.array(jetMassData[0:trainingDataLength])
+print(jetMassTrainingData[[i<40 for i in jetMassTrainingData]])
 particleTrainingData = np.transpose(
     particleData[0:trainingDataLength, ].reshape(trainingDataLength, 
                                                  entriesPerParticle, 
@@ -68,9 +73,13 @@ particleTrainingData = np.transpose(
                                                  axes=(0, 1, 2))
 trainingLabels = np.array([[i, 1-i] for i in labels[0:trainingDataLength]]).reshape((-1, 2))
 
-# Validation Data
+
+########## Validation Data ##########
 eventValidationData = np.array(eventData[trainingDataLength:trainingDataLength + validationDataLength])
 jetMassValidationData = np.array(jetMassData[trainingDataLength:trainingDataLength + validationDataLength])
+
+print(jetMassValidationData[[i<40 for i in jetMassValidationData]])
+
 particleValidationData = np.transpose(
     particleData[trainingDataLength:trainingDataLength + validationDataLength, ].reshape(validationDataLength,
                                                                                          entriesPerParticle,
@@ -78,7 +87,9 @@ particleValidationData = np.transpose(
                                                                                          axes=(0, 1, 2))
 validationLabels = np.array([[i, 1-i] for i in labels[trainingDataLength:trainingDataLength + validationDataLength]]).reshape((-1, 2))
 
-# Testing Data
+
+
+########### Testing Data ############
 particleTestData = np.transpose(particleData[trainingDataLength + validationDataLength:,].reshape(
     len(particleData) - trainingDataLength - validationDataLength, entriesPerParticle, particlesConsidered),
                                 axes=(0, 1, 2))
@@ -88,13 +99,15 @@ print('Selecting particlesPostCut')
 particleTrainingData = particleTrainingData[:, :particlesPostCut]
 particleValidationData = particleValidationData[:, :particlesPostCut]
 
+particlesConsidered = particlesPostCut
 
 # Separating signal and bkg arrays
-particleTrainingDataSig = particleTrainingData[[trainingLabels[:,0].astype(bool)]]
+particleTrainingDataSig = particleTrainingData[trainingLabels[:,0].astype(bool)]
 particleTrainingDataBkg = particleTrainingData[trainingLabels[:,1].astype(bool)]
 particleValidationDataSig = particleValidationData[validationLabels[:,0].astype(bool)]
 particleValidationDataBkg = particleValidationData[validationLabels[:,1].astype(bool)]
-
+particleTrainingLabelSig = trainingLabels[trainingLabels[:,0].astype(bool)]
+particleTrainingLabelBkg = trainingLabels[trainingLabels[:,1].astype(bool)]
 
 # Jet mass for correlation
 jetMassTrainingDataSig = jetMassTrainingData[trainingLabels[:,0].astype(bool)]
@@ -103,8 +116,6 @@ jetMassValidationDataSig = jetMassValidationData[validationLabels[:,0].astype(bo
 jetMassValidationDataBkg = jetMassValidationData[validationLabels[:,1].astype(bool)]
 
 # Defines the interaction matrices
-particlesConsidered = particlesPostCut
-
 class GraphNetnoSV(nn.Module):
     def __init__(self, n_constituents, n_targets, params, hidden, De=5, Do=6, softmax=False):
         super(GraphNetnoSV, self).__init__()
@@ -136,6 +147,7 @@ class GraphNetnoSV(nn.Module):
         self.fo3 = nn.Linear(int(self.hidden/2), self.Do).cuda()
         
         self.fc_fixed = nn.Linear(self.Do, self.n_targets).cuda()
+        self.activation = torch.nn.Sigmoid()
             
     def assign_matrices(self):
         self.Rr = torch.zeros(self.N, self.Nr)
@@ -186,8 +198,8 @@ class GraphNetnoSV(nn.Module):
         
         if softmax:
             N = nn.Softmax(dim=1)(N)
-
-        return N 
+        
+        return self.activation(N)
             
     def tmul(self, x, y):  #Takes (I * J * K)(K * L) -> I * J * L 
         x_shape = x.size()
@@ -213,11 +225,33 @@ class BarlowTwinsLoss(torch.nn.Module):
         # cross-correlation matrix
         c = torch.mm(z_a_norm.T, z_b_norm) / N # DxD
         # loss
-        c_diff = (c - torch.eye(D,device=self.device)).pow(2) # DxD
+        c_diff = (c - torch.eye(D, device=self.device)).pow(2) # DxD
         # multiply off-diagonal elems of c_diff by lambda
         c_diff[~torch.eye(D, dtype=bool)] *= self.lambda_param
         loss = c_diff.sum()
         return loss
+
+class DNN(nn.Module):
+    def __init__(self, n_targets):
+        super(DNN, self).__init__()
+        #self.flat = torch.flatten()
+        self.f1 = nn.Linear(400, 100).cuda()
+        self.f0 = nn.Linear(200, 400).cuda()
+        self.f0b = nn.Linear(400, 400).cuda()
+        self.f2 = nn.Linear(100, 50).cuda()
+        self.f3 = nn.Linear(50, 10).cuda()
+        self.f4 = nn.Linear(10, n_targets).cuda()
+        self.activation = torch.nn.Sigmoid()
+    def forward(self, x): 
+        x = torch.flatten(x,start_dim=1)
+        x = self.f0(x)
+        x = self.f0b(x)
+        x = self.f1(x)
+        x = self.f2(x)
+        x = self.f3(x)
+        x = self.f4(x)
+        return(self.activation(x))
+    
 
 class CorrLoss(nn.Module):
     def __init__(self, corr=False,sort_tolerance=1.0,sort_reg='l2'):
@@ -239,22 +273,18 @@ class CorrLoss(nn.Module):
         if self.corr:
             return (1-ret)*(1-ret)
         else:
-            return ret*ret
+            return ret*ret 
     
     def forward(self, features, labels):
         return self.spearman(features,labels)
-    
-##############################################   
-########## DUC I HAVE TO PEE #################
-##############################################
 
+n_targets = 8
+#gnn = GraphNetnoSV(particlesPostCut, n_targets, entriesPerParticle, 15,
+#                      De=5,
+#                      Do=6, softmax=False)
 
-n_targets = 2
-gnn = GraphNetnoSV(particlesPostCut, n_targets, entriesPerParticle, 15,
-                       De=5,
-                       Do=6, softmax=False)
-        
-n_epochs = 200
+gnn = DNN(n_targets)
+n_epochs = 100
     
 loss = nn.BCELoss(reduction='mean')
 clr_criterion  = BarlowTwinsLoss(lambda_param=1.0)
@@ -291,39 +321,52 @@ for m in range(n_epochs):
     loss_training = []
     correct = []
     tic = time.perf_counter()
+    
+    particleTrainingDataSig, jetMassTrainingDataSig = sklearn.utils.shuffle(particleTrainingDataSig, jetMassTrainingDataSig)
+    particleTrainingDataBkg, jetMassTrainingDataBkg = sklearn.utils.shuffle(particleTrainingDataBkg, jetMassTrainingDataBkg)
+    particleValidationDataSig, jetMassValidationDataSig = sklearn.utils.shuffle(particleValidationDataSig,
+                                                                                jetMassValidationDataSig)
+    particleValidationDataBkg, jetMassValidationDataBkg = sklearn.utils.shuffle(particleValidationDataBkg,
+                                                                                jetMassValidationDataBkg)
+    
+    weightClr = 10
+    weightCorr1 = 100
    
     for i in tqdm(range(int(0.8*datapoints/batchSize))): 
         #print('%s out of %s'%(i, int(particleTrainingData.shape[0]/batchSize)))
-        
         optimizer.zero_grad()
         trainingvSig = torch.FloatTensor(particleTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
         trainingvBkg = torch.FloatTensor(particleTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
-        trainingvMass = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
-        #targetv = torch.FloatTensor(trainingLabels[i*batchSize:(i+1)*batchSize]).cuda()
+        trainingvMassSig = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
+        trainingvMassBkg = torch.FloatTensor(jetMassTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
+        trainingv1 = torch.cat((trainingvSig[:int(batchSize/2)], 
+                                trainingvBkg[:int(batchSize/2)]))
+        trainingv1_mass = torch.cat((trainingvMassSig[:int(batchSize/2)], 
+                                trainingvMassBkg[:int(batchSize/2)]))
+        trainingv2 = torch.cat((trainingvSig[int(batchSize/2):], 
+                                trainingvBkg[int(batchSize/2):]))
+        
+        # Calculate network output
+        out1 = gnn(trainingv1)
+        out2 = gnn(trainingv2)
         
         # Barlow Loss
-        outSig = gnn(trainingvSig)
-        outBkg = gnn(trainingvBkg)
-        print(outSig[:5])
-        print(outBkg[:5])
-        lossClr = clr_criterion(outSig, outBkg)
-        #print(trainingvSig[1])
-        #print(trainingvBkg[1])
-        #print(trainingvMass[1])
-        # Correlation Loss
+        lossClr = weightClr*clr_criterion(out1, out2)
         
-        lossCorr1 = cor_criterion(outSig[:,1], trainingvMass)
-        lossCorr2 = acr_criterion(trainingvMass, outSig[:,0])
-        l = lossClr + lossCorr1 + lossCorr2 
-        print(lossClr)
-        print(lossCorr1)
-        print(lossCorr2)
-        #print(outSig)
-        #print(trainingvMass)
+        # AntiCorrelation
+        lossCorr1 = weightCorr1*acr_criterion(trainingv1_mass, out1[:,0])
+        l = lossClr + lossCorr1
+       
+        # Correlation for rest of dimensions
+        for dim in range(out1.shape[1]-1): 
+            l += (dim+1)*cor_criterion(out1[:,dim+1], trainingv1_mass)
+        
+        #l = weightClr*lossClr  + weightCorr1*lossCorr1 + weightCorr2*lossCorr2 + lossCorr3
         
         # Classical BCE loss
-        #trainingv = torch.FloatTensor(particleTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
+        #trainingv = torch.FloatTensor(particleTrainingData[i*batchSize:(i+1)*batchSize]).cuda()
         #out = gnn(trainingv)
+        #targetv = torch.FloatTensor(trainingLabels[i*batchSize:(i+1)*batchSize]).cuda()
         #l = loss(out, targetv)
         
         
@@ -331,42 +374,96 @@ for m in range(n_epochs):
         l.backward()
         optimizer.step()
         loss_string = "Loss: %s" % "{0:.5f}".format(l.item())
-        del trainingvSig, trainingvBkg, trainingvMass, l, outSig, outBkg
+        del trainingvSig, trainingvBkg, trainingv1_mass, l, trainingv1, trainingv2, out1, out2
         torch.cuda.empty_cache()
                    
     toc = time.perf_counter()
     print(f"Training done in {toc - tic:0.4f} seconds")
     tic = time.perf_counter()
 
-    for i in range(int(0.8*datapoints/batchSize)): 
-        
+    for i in range(int(0.1*datapoints/(batchSize))): 
+        torch.cuda.empty_cache()
         trainingvSig_val = torch.FloatTensor(particleValidationDataSig[i*batchSize:(i+1)*batchSize]).cuda()
         trainingvBkg_val = torch.FloatTensor(particleValidationDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
-        trainingvMass_val = torch.FloatTensor(jetMassValidationDataSig[i*batchSize:(i+1)*batchSize]).cuda()
+        trainingvMassSig_val = torch.FloatTensor(jetMassValidationDataSig[i*batchSize:(i+1)*batchSize]).cuda()
+        trainingvMassBkg_val = torch.FloatTensor(jetMassValidationDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
         targetv_val = torch.FloatTensor(validationLabels[i*batchSize:(i+1)*batchSize]).cuda()
-        
+        trainingv1_val = torch.cat((trainingvSig_val[:int(batchSize/2)], trainingvBkg_val[:int(batchSize/2)]))
+        trainingv2_val = torch.cat((trainingvSig_val[int(batchSize/2):], trainingvBkg_val[int(batchSize/2):]))
+        trainingv1_val_mass = torch.cat((trainingvMassSig_val[:int(batchSize/2)], 
+                                trainingvMassBkg_val[:int(batchSize/2)]))
         
         # Barlow Loss
-        outSig_val = gnn(trainingvSig_val)
-        outBkg_val = gnn(trainingvBkg_val)
-        lossClr = clr_criterion(outSig_val, outBkg_val)
+        out1_val = gnn(trainingv1_val)
+        out2_val = gnn(trainingv2_val)
+        lossClr = weightClr*clr_criterion(out1_val, out2_val)
         
-        # Correlation Loss
-        lossCorr1 = 10*cor_criterion(outSig_val[:,0], trainingvMass_val)
-        lossCorr2 = 10*acr_criterion(trainingvMass_val, outSig_val[:,1])
-        l_val = lossClr + lossCorr1 + lossCorr2 
+        # AntiCorrelation
+        lossCorr1 = weightCorr1*acr_criterion(trainingv1_val_mass, out1_val[:,0])
+        l_val = lossClr + lossCorr1
+       
+        # Correlation for rest of dimensions
+        for dim in range(out1_val.shape[1]-1): 
+            l_val += (dim+1)*cor_criterion(out1_val[:,dim+1], trainingv1_val_mass)
         
         
         # Classical validation
         trainingv_val = torch.FloatTensor(particleValidationData[i*batchSize:(i+1)*batchSize]).cuda()
-        
         out = gnn(trainingv_val)
         # l_val = loss(out, targetv_val)
-        lst.append(softmax(out).cpu().data.numpy())
+        lst.append(out.cpu().data.numpy())
         loss_val.append(l_val.item())
         correct.append(targetv_val.cpu())
         
-        del trainingvSig_val, trainingvBkg_val, trainingvMass_val, targetv_val
+        plt.figure()
+        out1_val = out1_val.cpu().detach().numpy()
+        trainingv1_val_mass = trainingv1_val_mass.cpu().detach().numpy()
+        plt.hist(trainingv1_val_mass[:int(batchSize/2)])
+        plt.hist(trainingv1_val_mass[int(batchSize/2):])
+        plt.savefig('hist.jpg')
+        
+        
+        '''
+        plt.figure()
+        plt.plot(out1_val[:int(batchSize/2), 0], out1_val[:int(batchSize/2), 1], 'k+',c='r', alpha=0.5)
+        plt.xlabel('first dimension output')
+        plt.plot(out1_val[int(batchSize/2):, 0], out1_val[int(batchSize/2):, 1], 'k+',c='b', alpha=0.5)
+        plt.ylabel('second dimension output')
+        plt.savefig('contrastivefig1IN.jpg')
+        
+        
+        plt.figure()
+        plt.plot(out1_val[:int(batchSize/2), 0], trainingv1_val_mass[:int(batchSize/2)], 'k+',c='r', alpha=0.5)
+        plt.xlabel('first dimension output')
+        plt.plot(out1_val[int(batchSize/2):, 0], trainingv1_val_mass[int(batchSize/2):], 'k+',c='b', alpha=0.5)
+        plt.ylabel('sdmass')
+        plt.savefig('contrastivefig2IN.jpg')
+        
+        plt.figure()
+        plt.plot(out1_val[:int(batchSize/2), 1], trainingv1_val_mass[:int(batchSize/2)], 'k+',c='r', alpha=0.5)
+        plt.xlabel('second dimension output')
+        plt.plot(out1_val[int(batchSize/2):, 1], trainingv1_val_mass[int(batchSize/2):], 'k+',c='b', alpha=0.5)
+        plt.ylabel('sdmass')
+        plt.savefig('contrastivefig3IN.jpg')
+        '''
+        
+        fig, axs = plt.subplots(n_targets, figsize=(10,50))
+        for dim in range(out1_val.shape[1]): 
+            axs[dim].plot(out1_val[:int(batchSize/2), dim], trainingv1_val_mass[:int(batchSize/2)], 'k+',c='r', alpha=0.5)
+            #plt.xlabel('%s dimension output'%(dim))
+            axs[dim].plot(out1_val[int(batchSize/2):, dim], trainingv1_val_mass[int(batchSize/2):], 'k+',c='b', alpha=0.5)
+            
+        #fig.ylabel('sdmass')
+        fig.savefig('contrastivefig%sIN.jpg'%(dim))
+        
+        plt.figure()
+        fig = corner.corner(out1_val[:int(batchSize/2)], color='red')
+        corner.corner(out1_val[int(batchSize/2):], fig=fig, color='blue')
+        fig.savefig('corner.jpg')
+        
+        del trainingvSig_val, trainingvBkg_val, trainingv1_val_mass, targetv_val, trainingv1_val, trainingv2_val, out1_val, out2_val
+        torch.cuda.empty_cache()
+       
     #targetv_cpu = targetv.cpu().data.numpy()
     
     toc = time.perf_counter()
