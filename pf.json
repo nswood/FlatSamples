@@ -12,7 +12,7 @@
         "jet_pt", "jet_sdmass"
     ],
     "ss_vars": [
-        "jet_eta","jet_phi","jet_EhadOverEem","jet_mass"
+        "jet_eta","jet_phi","jet_EhadOverEem","jet_mass","ecfns_3_2","ecfns_2_1"]
     ],
     "features_track_possiblyproblematic": [
         "pt","eta","phi","charge"
