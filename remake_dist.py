@@ -14,11 +14,14 @@ file_num_sig = 1
 file_num_bkg = 1 
 fill_factor = 1
 pt_range = [400., 1000.]
+#pt_range = [40., 250.]
 mass_range = [40., 250.]
 dR_limit = 0.8
 signal_list = ['flat_qq']
-background_list = ['QCD_HT700to1000', 'QCD_HT_1000to1500', 'QCD_HT_2000toInf', 'QCD_HT_1500to2000']
-output_name = "data/FullQCD_FullSig_Zqq_noFill_dRlimit08_50particlesordered_genMatched50.h5"
+background_list = ['QCD_HT700to1000', 'QCD_HT_1000to1500', 'QCD_HT_1500to2000', 'QCD_HT_2000toInf']
+
+output_name = "data/FullQCD_FullSig_Zqq_noFill_dRlimit08_50particlesordered_genMatched50_ECF.h5"
+output_name_flatratio = "data/FullQCD_FullSig_Zqq_noFill_dRlimit08_50particlesordered_genMatched50_ECF_flatratio.h5"
 
 # Opens json files for signal and background
 
@@ -31,6 +34,7 @@ with open("pf.json") as jsonfile:
     conversion_tower = payload['conversion_tower']
     ss = payload['ss_vars']
     gen = payload['gen_vars']
+    N2feat = payload['N2_vars']
 
 # Creates the column names of the final data frame
 
@@ -39,7 +43,7 @@ for iVar in features_track:
     for i0 in range(particle_num):
         part_features.append(iVar + str(i0))
 
-columns = ss + weight + part_features + ['label']
+columns = ss + weight + N2feat + ['N2'] + part_features + ['label']
 
 # Unnests a pandas dataframe
 
@@ -74,7 +78,6 @@ def remake_fillsig(iFiles_sig, iFiles_bkg, iFile_out):
     """remake(list[array(nxm),...], list[array(nxs),...], str)"""
 
     # Creates the signal data frame
-    
     df_sig_to_concat = []
     for sig in iFiles_sig:
         file_list = os.listdir(payload['samples'][sig])
@@ -210,6 +213,7 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
             tree = file1['tree']
             branches = tree.arrays()
             print(len(branches))
+            #branches = branches[:1000]
             branches = branches[:int(len(branches))]
             event_num = int(len(branches['jet_pt']))
             df_bkg_tower = pd.DataFrame({column: list(branches[conversion_tower[column]]) for column in features_tower})
@@ -223,9 +227,13 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
                 arr_bkg_to_concat_temp.append(arr_bkg_temp)
             arr_bkg_temp = np.vstack(arr_bkg_to_concat_temp)
             df_bkg_temp = pd.DataFrame(arr_bkg_temp, columns=part_features)
-            for column in ss + weight:
+            for column in ss + weight + N2feat:
                 df_bkg_temp[column] = np.array(branches[column]).reshape(-1, 1)
             df_bkg_temp['label'] = 0
+            df_bkg_temp['N2'] = df_bkg_temp[N2feat[1]]/(df_bkg_temp[N2feat[0]]*df_bkg_temp[N2feat[0]])
+            print(df_bkg_temp[N2feat[1]])
+            print(df_bkg_temp[N2feat[0]])
+            print(df_bkg_temp['N2'])
             df_bkg_temp = df_bkg_temp[columns]
             pt_col = df_bkg_temp[weight[0]].values.reshape(-1, 1)
             mass_col = df_bkg_temp[weight[1]].values.reshape(-1, 1)
@@ -242,10 +250,9 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
                                       range=np.array([pt_range, mass_range]))
     
     print('background hist:')
-    print(bkg_hist)
     
     # Creates the signal data frame
-    
+    df_remade_sig_flatratio = pd.DataFrame(columns=columns)
     df_remade_sig = pd.DataFrame(columns=columns)
     df_sig_to_concat = []
     for sig in iFiles_sig:
@@ -262,6 +269,7 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
             tree = file1['tree']
             branches = tree.arrays()
             print(len(branches))
+            #branches = branches[:1000]
             branches = branches[:int(len(branches))]
             event_num = int(len(branches['jet_pt']))
             df_sig_tower = pd.DataFrame({column: list(branches[conversion_tower[column]]) for column in features_tower})
@@ -275,9 +283,10 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
                 arr_sig_to_concat_temp.append(arr_sig_temp)
             arr_sig_temp = np.vstack(arr_sig_to_concat_temp)
             df_sig_temp = pd.DataFrame(arr_sig_temp, columns=part_features)
-            for column in ss + weight + gen:
+            for column in ss + weight + gen + N2feat:
                 df_sig_temp[column] = np.array(branches[column]).reshape(-1, 1)
             df_sig_temp['label'] = 1
+            df_sig_temp['N2'] = df_sig_temp[N2feat[1]]/(df_sig_temp[N2feat[0]]*df_sig_temp[N2feat[0]])
             df_sig_temp = genMatch(df_sig_temp)
             dR_col = dR(df_sig_temp).values.reshape(-1, 1)
             df_sig_temp = df_sig_temp[columns]
@@ -295,7 +304,7 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
     
 
     # Adds signal based on background distribution until fill factor is reached
-    '''
+     
     fill_completely = True
     
     for ix in range(len(_x) - 1):
@@ -303,18 +312,21 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
             new_df_sig = df_sig[((df_sig[weight[0]] >= _x[ix]) & (df_sig[weight[0]] < _x[ix + 1]) & (
                                 df_sig[weight[1]] >= _y[iy]) & (df_sig[weight[1]] < _y[iy + 1]))]
             
-            if fill_completely:
-                fill_num = int(int(bkg_hist[ix, iy]) * fill_factor)
+            new_df_bkg = df_bkg[((df_bkg[weight[0]] >= _x[ix]) & (df_bkg[weight[0]] < _x[ix + 1]) & (
+                                df_bkg[weight[1]] >= _y[iy]) & (df_bkg[weight[1]] < _y[iy + 1]))]
+            
+            if True:
+                fill_num = len(new_df_bkg)
                 if len(new_df_sig) == 0: 
-                    fill_num = 0 
-                df_remade_sig = pd.concat([df_remade_sig, 
+                    fill_num = 0
+                df_remade_sig_flatratio = pd.concat([df_remade_sig_flatratio, 
                                            new_df_sig.sample(n=fill_num, replace=True)], 
                                            ignore_index=True)    
             else:    
-                df_remade_sig = pd.concat([df_remade_sig, new_df_sig.sample(n=min(int(int(bkg_hist[ix, iy]) * fill_factor),
+                df_remade_sig_flatratio = pd.concat([df_remade_sig_flatratio, new_df_sig.sample(n=min(int(int(bkg_hist[ix, iy]) * fill_factor),
                                                                                   len(new_df_sig)))], ignore_index=True)
 
-    '''
+    
     df_remade_sig = df_sig
     
     # Shows fill factor per bin
@@ -331,19 +343,28 @@ def remake_fillbkg(iFiles_sig, iFiles_bkg, iFile_out):
     # Merges data frames
 
     merged_df = pd.concat([df_bkg, df_remade_sig]).astype('float32')
-
+    merged_df_flatratio = pd.concat([df_bkg, df_remade_sig_flatratio]).astype('float32')
+    
     # Creates output file
 
     merged_df = merged_df[columns]
+    merged_df_flatratio = merged_df_flatratio[columns]
     final_df = merged_df[~(np.sum(np.isinf(merged_df.values), axis=1) > 0)]
+    final_df_flatratio = merged_df_flatratio[~(np.sum(np.isinf(merged_df_flatratio.values), axis=1) > 0)]
     print(list(final_df.columns))
     arr = final_df.values
+    arr_flatratio = final_df_flatratio.values
     print(arr.shape)
 
     # Open HDF5 file and write dataset
 
     h5_file = h5py.File(iFile_out, 'w')
     h5_file.create_dataset('deepDoubleQ', data=arr, compression='lzf')
+    h5_file.close()
+    
+    output_name_flatratio = "data/FullQCD_FullSig_Zqq_noFill_dRlimit08_50particlesordered_genMatched50_ECF_flatratio.h5"
+    h5_file = h5py.File(output_name_flatratio, 'w')
+    h5_file.create_dataset('deepDoubleQ', data=arr_flatratio, compression='lzf')
     h5_file.close()
     del h5_file
     

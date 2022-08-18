@@ -9,7 +9,7 @@ def phi_kernel(a):
 
 print("Extracting")
 
-fOne = h5py.File("data/FullQCD_FullSig_Zqq_fillfactor1_pTsdmassfilling_dRlimit08_50particlesordered_sigFill_genMatched50.h5", 'r')
+fOne = h5py.File("data/FullQCD_FullSig_Zqq_fillfactor1_pTsdmassfilling_dRlimit08_50particlesordered_bkgFill_genMatched50.h5", 'r')
 totalData = fOne["deepDoubleQ"][:]
 print(fOne["deepDoubleQ"])
 print(totalData.shape)
