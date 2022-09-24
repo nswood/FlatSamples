@@ -45,14 +45,32 @@ print(args)
 # Opens files and reads data
 
 print("Extracting")
-fOne = np.load("/n/holyscratch01/iaifi_lab/jkrupa/10Mar22-MiniAODv2/18May22-morevars-v3_test/zpr_fj_msd/2017/total.npz")
-
+#fOne = np.load("/n/holyscratch01/iaifi_lab/jkrupa/10Mar22-MiniAODv2/18May22-morevars-v3_test/zpr_fj_msd/2017/total.npz")
+fOne = np.load("/work/tier3/jkrupa/FlatSamples/total.npz")
 #totalData = fOne["deepDoubleQ"][:]
 #print(totalData.shape)
 
 
 # In[ ]:
 
+weightrepr = args.weightrepr
+weightcov = args.weightcov #(most useful)
+weightstd = args.weightstd
+#weightclr = 1
+weightCorr1 = args.weightCorr1 #(most useful in barlow)
+weightCorr2 = args.weightCorr2 #(not really useful but could explore)
+batchSize = 6000
+n_Dim = 4
+n_epochs = args.nepochs
+CorrDim = 1
+mod = "vicreg"
+label='Contrastive'+'_n_epochs'+str(n_epochs)+'_ndim'+str(n_Dim)+'_batchSize'+str(batchSize) + '_weightrepr'+str(weightrepr) + '_weightcov'+str(weightcov) + '_weightstd'+str(weightstd) + '_weightCorr1'+str(weightCorr1) + '_weightCorr2'+str(weightCorr2)
+modelName = "DNN_FlatSamples_flatratio_" + label + mod
+outdir = '/home/tier3/jkrupa/public_html/zprlegacy/cl/' + modelName #everything will output here
+try: 
+    os.system("mkdir -p "+outdir) 
+except OSError as error: 
+    print(error)
 
 # Sets controllable values
 
@@ -160,7 +178,8 @@ jetMassTrainingDataBkg = jetMassTrainingData[trainingLabels[:,1].astype(bool)]
 fig,ax = plt.subplots()
 ax.hist(jetMassTestData[testLabels[:,0].astype(bool)],alpha=0.7,label="Z'")
 ax.hist(jetMassTestData[testLabels[:,1].astype(bool)],alpha=0.7,label="QCD")
-plt.savefig("jet_mass_testing_data.png")
+plt.savefig(outdir+"/jet_mass_testing_data.png")
+plt.savefig(outdir+"/jet_mass_testing_data.pdf")
 print(jetMassTrainingDataSig.shape)
 print(jetMassTrainingDataBkg.shape)
 
@@ -473,12 +492,13 @@ def train_encoder(encoder, batchSize, n_Dim, CorrDim, n_epochs, modelName, outdi
     acr_criterion  = CorrLoss(corr=True)
 
     optimizer = optim.Adam(encoder.parameters(), lr = 0.001)
-    loss_vals_training = np.zeros(n_epochs)
-    loss_vals_validation = np.zeros(n_epochs)
+    loss_vals_training = [] #np.zeros(n_epochs)
+    loss_vals_validation = [] #np.zeros(n_epochs)
 
     final_epoch = 0
     l_val_best = 99999
 
+    epoch_idx = 0 
     for m in range(n_epochs):
         print("Epoch %s\n" % m)
         #torch.cuda.empty_cache()
@@ -644,14 +664,17 @@ def train_encoder(encoder, batchSize, n_Dim, CorrDim, n_epochs, modelName, outdi
             axs[dim,1].set_xlabel(f'Dimension {dim} output')
             axs[dim,0].set_ylabel('Jet mass (GeV)')
         plt.legend(loc="best")
-        plt.savefig(outdir+"/"+modelName+f"_contrastivefigIN_trainingDataset_epoch{m}.jpg")
+        plt.savefig(outdir+"/"+modelName+f"_contrastivefigIN_trainingDataset_epoch{m}.png")
+        plt.savefig(outdir+"/"+modelName+f"_contrastivefigIN_trainingDataset_epoch{m}.pdf")
 
         try: 
             label_str = ["latent var %s"%str(i) for i in range(n_Dim)]
             label_str.append("mass")
             fig = corner.corner(np.concatenate((out_val_total_sig, out_val_mass_total_sig.reshape(-1, 1)), axis=1), color='red', labels=label_str)
             corner.corner(np.concatenate((out_val_total_bkg, out_val_mass_total_bkg.reshape(-1, 1)), axis=1), fig=fig, color='blue', labels=label_str)
-            fig.savefig('%s/CornerPlot_%s.jpg'%(outdir,modelName))
+            fig.text(0.45,1.05,loss_text, transform=ax.transAxes, fontsize=16)
+            fig.savefig('%s/CornerPlot_%s.png'%(outdir,modelName))
+            fig.savefig('%s/CornerPlot_%s.pdf'%(outdir,modelName))
         except: 
             # Can happen at beginning of trainings
             print('corner plot problems - might not plot? but also might plot?')
@@ -672,15 +695,26 @@ def train_encoder(encoder, batchSize, n_Dim, CorrDim, n_epochs, modelName, outdi
             l_val_best = l_val
             torch.save(encoder.state_dict(), '%s/encoder_%s_best.pth'%(outdir,modelName))
 
-        loss_vals_training[m] = l_training
-        loss_vals_validation[m] = l_val
+        loss_vals_training.append(l_training)
+        loss_vals_validation.append(l_val)
 
+        epoch_idx += 1
         # Early stopping
         if m > 8 and all(loss_vals_validation[max(0, m - 8):m] > min(np.append(loss_vals_validation[0:max(0, m - 8)], 200))):
             print('Early Stopping...')
             print(loss_vals_training, '\n', np.diff(loss_vals_training))
             break
-            
+    plt.clf()
+    fig,ax = plt.subplots()
+    ax.plot(range(1,epoch_idx+1),loss_vals_training,label="Training")
+    ax.plot(range(1,epoch_idx+1),loss_vals_validation,label="Validation")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Encoder Loss")
+    ax.legend(loc="upper right")
+    ax.text(0.45,1.05,loss_text, transform=ax.transAxes, fontsize=16)
+    plt.savefig(outdir+"/encoder_loss.png")
+    plt.savefig(outdir+"/encoder_loss.pdf")
+
     print(loss_vals_training, '\n', np.diff(loss_vals_training))
     
     print('DONE with ENCODER training')
@@ -707,14 +741,14 @@ def train_classifier(classifier, encoder, batchSize, n_Dim, CorrDim, n_epochs, m
     loss = nn.BCELoss(reduction='mean')  
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
 
-    loss_vals_training = np.zeros(n_epochs)
-    loss_vals_validation = np.zeros(n_epochs)
+    loss_vals_training = [] #np.zeros(n_epochs)
+    loss_vals_validation = [] # np.zeros(n_epochs)
     acc_vals_training = np.zeros(n_epochs)
     acc_vals_validation = np.zeros(n_epochs)
     
     final_epoch = 0
     l_val_best = 99999
-    
+    epoch_idx = 0 
     for m in range(n_epochs):
         print("Epoch %s\n" % m)
         tic = time.perf_counter()
@@ -788,12 +822,23 @@ def train_classifier(classifier, encoder, batchSize, n_Dim, CorrDim, n_epochs, m
             print("new best model")
             l_val_best = l_val
             torch.save(classifier.state_dict(), '%s/classifier_%s_best.pth'%(outdir,modelName))
-        loss_vals_training[m] = l_training
-        loss_vals_validation[m] = l_val
+        loss_vals_training.append(l_training)
+        loss_vals_validation.append(l_val)
+        epoch_idx += 1
         if m > 8 and all(loss_vals_validation[max(0, m - 8):m] > min(np.append(loss_vals_validation[0:max(0, m - 8)], 200))):
             print('Early Stopping...')
             print(loss_vals_training, '\n', np.diff(loss_vals_training))
             break
+    plt.clf()
+    fig,ax = plt.subplots()
+    ax.plot(range(1,epoch_idx+1),loss_vals_training,label="Training")
+    ax.plot(range(1,epoch_idx+1),loss_vals_validation,label="Validation")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Classifier Loss")
+    ax.legend(loc="upper right")
+    ax.text(0.45,1.05,loss_text, transform=ax.transAxes, fontsize=16)
+    plt.savefig(outdir+"/classifier_loss.png")
+    plt.savefig(outdir+"/classifier_loss.pdf")
 
     print(loss_vals_training, '\n', np.diff(loss_vals_training))
     print('DONE with CLASSIFIER training')
@@ -809,23 +854,28 @@ def eval_classifier(classifier, encoder, loss_params_text, outdir):
     testData = singletonData[trainingDataLength + validationDataLength: ,]
  
     fig,ax = plt.subplots()
-    ax.hist(predictions[testLabels[:,0]==1][:,0], alpha=0.7, label="Z'")
-    ax.hist(predictions[testLabels[:,1]==1][:,0], alpha=0.7, label="QCD")
-    ax.set_xlabel("Output")
+    ax.hist(predictions[testLabels[:,0]==1][:,0], alpha=0.7, bins=20, label="Z'", density=True)
+    ax.hist(predictions[testLabels[:,1]==1][:,0], alpha=0.7, bins=20, label="QCD", density=True)
+    ax.set_xlabel("Network Output",ha='right', x=1.0, fontsize=16)
+    ax.set_ylabel(r'Normalized scale ({})'.format('QCD'), ha='right', y=1.0, fontsize=16)
     ax.legend()
-    plt.savefig('%s/model_output.jpg'%(outdir))
+    ax.text(0.45,1.05,loss_text, transform=ax.transAxes, fontsize=16)
+    plt.savefig('%s/model_output.png'%(outdir))
+    plt.savefig('%s/model_output.pdf'%(outdir))
 
     fpr, tpr, threshold = roc_curve(np.array(testLabels)[:,1].reshape(-1), np.array(predictions)[:,1].reshape(-1))
     np.savez(outdir+"/rocvals",fpr=fpr,tpr=tpr)
     plt.figure()
     plt.plot(fpr, tpr, lw=2.5, label="{}, AUC = {:.1f} %".format('ZprimeAtoqq IN',auc(fpr,tpr)*100))
-    plt.title('ROC Curve')
-    plt.xlabel('FPR')
-    plt.ylabel('TPR')
+    #plt.title('ROC Curve')
+    plt.xlabel('FPR',ha='right', x=1.0, fontsize=24)
+    ax.set_ylabel(r'Normalized scale ({})'.format('QCD'), ha='right', y=1.0, fontsize=24)
     plt.legend()
-    plt.savefig('%s/%s_model_ROC.jpg'%(outdir,modelName))
+    plt.text(0.45,1.05,loss_text, transform=ax.transAxes, fontsize=16)
+    plt.savefig('%s/%s_model_ROC.png'%(outdir,modelName))
+    plt.savefig('%s/%s_model_ROC.pdf'%(outdir,modelName))
 
-    sculpt_vars = ['jet_sdmass', 'jet_pT', 'jet_eta', 'zpr_fj_phi']  
+    sculpt_vars = ['jet_sdmass', 'jet_pT', 'jet_eta', 'jet_phi']  
     #sculpt_vars = ['jet_eta', "jet_phi","jet_EhadOverEem","jet_mass", 'jet_pT', 'jet_sdmass']
     for i in range(len(sculpt_vars)):
         
@@ -860,16 +910,20 @@ def eval_classifier(classifier, encoder, loss_params_text, outdir):
 
         
         if sculpt_vars[i] == 'jet_sdmass':
-            ax.set_xlabel(r'$\mathrm{Jet\ m_{SD}\ (GeV)}$', ha='right', x=1.0, fontsize=16)
+            ax.set_xlabel(r'$\mathrm{Jet\ m_{SD}\ (GeV)}$', ha='right', x=1.0, fontsize=24)
         elif sculpt_vars[i] == 'jet_pT':
-            ax.set_xlabel(r'$\mathrm{Jet\ pT\ (GeV)}$', ha='right', x=1.0, fontsize=16)
+            ax.set_xlabel(r'$\mathrm{Jet\ pT\ (GeV)}$', ha='right', x=1.0, fontsize=24)
+        elif sculpt_vars[i] == 'jet_eta':
+            ax.set_xlabel(r'$\mathrm{Jet\ \eta\ (GeV)}$', ha='right', x=1.0, fontsize=24)
+        elif sculpt_vars[i] == 'jet_phi':
+            ax.set_xlabel(r'$\mathrm{Jet\ \phi\ (GeV)}$', ha='right', x=1.0, fontsize=24)
         else: 
             ax.set_xlabel(sculpt_vars[i], ha='right', x=1.0, fontsize=16)
-        ax.set_ylabel(r'Normalized scale ({})'.format('QCD'), ha='right', y=1.0, fontsize=16)
+        ax.set_ylabel(r'Normalized scale ({})'.format('QCD'), ha='right', y=1.0, fontsize=24)
         import matplotlib.ticker as plticker
-        ax.xaxis.set_major_locator(plticker.MultipleLocator(base=20))
-        ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=10))
-        ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
+        #ax.xaxis.set_major_locator(plticker.MultipleLocator(base=20))
+        #ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=10))
+        #ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
         
         pt_range = [200., 1500.]
         mass_range = [40., 350.]
@@ -885,8 +939,8 @@ def eval_classifier(classifier, encoder, loss_params_text, outdir):
             ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=50))
             ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
         else: 
-            ax.xaxis.set_major_locator(plticker.MultipleLocator(base=20))
-            ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=10))
+            ax.xaxis.set_major_locator(plticker.MultipleLocator(base=2))
+            ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
             ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
         
         ax.set_ylim(0, 0.30)
@@ -902,38 +956,21 @@ def eval_classifier(classifier, encoder, loss_params_text, outdir):
         leg = ax.text(0.03, 0.88, ""+str(int(round((min(pt_range)))))+" $\mathrm{<\ Jet\ p_T\ <}$ "+str(int(round((max(pt_range)))))+" GeV" \
               + "\n "+str(int(round((min(mass_range)))))+" $\mathrm{<\ Jet\ m_{SD}\ <}$ "+str(int(round((max(mass_range)))))+" GeV"
                       + "\n Sculpted Sample"
-                  , fontsize=13, transform=ax.transAxes) #borderpad=1, frameon=False, loc='upper left', fontsize=16,          )
+                  , fontsize=16, transform=ax.transAxes) #borderpad=1, frameon=False, loc='upper left', fontsize=16,          )
         #leg._legend_box.align = "left"
         
         #ax.set_xlabel(sculpt_vars[i])
         #ax.set_ylabel("a.u.")
         #ax.text(0.05,1.03,"QCD jets", transform=ax.transAxes)
-        ax.set_title(loss_text + ' Z\'→qq'  , transform=ax.transAxes, fontsize=16)
+        ax.text(0.6,1.03,loss_text, transform=ax.transAxes, fontsize=24)
         plt.savefig(outdir+"/sculptingQCD_%s.png"%(sculpt_vars[i]))
+        plt.savefig(outdir+"/sculptingQCD_%s.pdf"%(sculpt_vars[i]))
         plt.show()
 
 
 # In[ ]:
 
 
-weightrepr = args.weightrepr
-weightcov = args.weightcov #(most useful)
-weightstd = args.weightstd
-#weightclr = 1
-weightCorr1 = args.weightCorr1 #(most useful in barlow)
-weightCorr2 = args.weightCorr2 #(not really useful but could explore)
-batchSize = 6000
-n_Dim = 4
-n_epochs = args.nepochs
-CorrDim = 1
-mod = "vicreg"
-label='Contrastive'+'_n_epochs'+str(n_epochs)+'_ndim'+str(n_Dim)+'_batchSize'+str(batchSize) + '_weightrepr'+str(weightrepr) + '_weightcov'+str(weightcov) + '_weightstd'+str(weightstd) + '_weightCorr1'+str(weightCorr1) + '_weightCorr2'+str(weightCorr2)
-modelName = "DNN_FlatSamples_flatratio_" + label + mod
-outdir = 'Plots_mainData/' + modelName #everything will output here
-try: 
-    os.system("mkdir -p "+outdir) 
-except OSError as error: 
-    print(error)
 
 fig, ax = plt.subplots()
 ax.hist(jetMassTrainingDataSig, alpha=0.7, bins=np.linspace(40,350,30),label="Z'")
@@ -950,10 +987,12 @@ ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=10))
 ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
 
 plt.savefig(outdir+"/jet_msd.png")
+plt.savefig(outdir+"/jet_msd.pdf")
 
+#$\mathrm{Jet\ m_{SD}\ (GeV)}$
 
 loss_text = 'lambda_cor=%s, lambdacorr1=%s, lambdacorr2=%s'%(weightcov, weightCorr1, weightCorr2)
-loss_text = 'lambda_clr=%s, lambdacorr1=%s, lambdacorr2=%s'%(weightcov, weightCorr1, weightCorr2)
+loss_text = '$\lambda_{cov}=$%s, $\lambda_{corr}=$%s'%(weightcov, weightCorr1)#, weightCorr2)
 #loss_text = "Contrastive Training "
 #encoder = GraphNetnoSV(particlesPostCut, n_Dim, entriesPerParticle, 15,
 #                      De=5,

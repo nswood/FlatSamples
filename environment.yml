@@ -210,4 +210,4 @@ dependencies:
     - widgetsnbextension==3.6.1
     - wrapt==1.14.1
     - yarl==1.8.1
-prefix: /n/home07/jkrupa/zprlegacy/SubtLeNet/train/dazsle-tagger/FlatSamples/mambaforge/envs/IN
+prefix: /work/tier3/jkrupa/FlatSamples/mambaforge/envs/IN
