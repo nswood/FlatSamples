@@ -96,7 +96,7 @@ def makedir(outdir):
         outdir += now.strftime("%Y_%D_%H_%M").replace("/","_")
     os.system("mkdir -p "+outdir )
 
-    return 
+    return outdir
 
 def plot_features(array, labels, feature_labels, outdir, text_label=None):
     array = np.nan_to_num(array,nan=0.0, posinf=0., neginf=0.) 

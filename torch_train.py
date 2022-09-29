@@ -10,6 +10,7 @@ import scipy
 import time
 from tqdm import tqdm 
 import utils #import *
+import sys
 import models
 import losses
 # Imports neural net tools
@@ -139,8 +140,16 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
 
     accuracy = Accuracy().cuda()
     model_dir = outdir
-    os.system("mkdir -p "+model_dir )
-
+    os.system("mkdir -p "+model_dir)
+    
+    if jetMassTrainingData is not None:
+        mass_hist = torch.histc(torch.FloatTensor(jetMassTrainingData), bins=20, min=30., max=400.)
+        mass_hist = mass_hist.to(torch.int32)
+        one_hots = torch.eye(len(mass_hist))
+        one_hots = torch.repeat_interleave(one_hots, mass_hist, dim=0)
+        print(one_hots)
+        print(one_hots.shape)
+    #sys.exit(1)
     for iepoch in range(nepochs):
         loss_training, acc_training = [], []
         loss_validation, acc_validation = [], []
@@ -150,10 +159,11 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             optimizer.zero_grad()
             batchInputs = torch.FloatTensor(particleTrainingData[istep*batchSize:(istep+1)*batchSize]).cuda()
             batchLabels = torch.FloatTensor(trainingLabels[istep*batchSize:(istep+1)*batchSize]).cuda()
+            mass = torch.FloatTensor(jetMassTrainingData[istep*batchSize:(istep+1)*batchSize]).cuda()
 
             output = classifier(batchInputs)
-            l = loss(output, batchLabels)
- 
+            l = loss(output, batchLabels, torch.IntTensor(trainingLabels).cuda(), one_hots.cuda(), 100.)
+            #print(output) 
             loss_training.append(l.item())
             acc_training.append(accuracy(output,torch.argmax(batchLabels.squeeze(), dim=1)).cpu().detach().numpy())
 
@@ -164,14 +174,15 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             loss_string = "Loss: %s" % "{0:.5f}".format(l.item())
             del batchInputs, batchLabels
             torch.cuda.empty_cache()
-
+            #break
+        #sys.exit(1)
         for istep in tqdm(range(int(len(particleValidationData)/batchSize))): 
             #if istep>10 : continue 
             valInputs = torch.FloatTensor(particleValidationData[istep*batchSize:(istep+1)*batchSize]).cuda()
             valLabels = torch.FloatTensor(validationLabels[istep*batchSize:(istep+1)*batchSize]).cuda()
 
             output = classifier(valInputs)
-            l_val  = loss(output, valLabels)
+            l_val  = loss(output, valLabels, torch.IntTensor(trainingLabels).cuda(), one_hots.cuda(), 100.)
  
             loss_validation.append(l_val.item())
             acc_validation.append(accuracy(output,torch.argmax(valLabels.squeeze(), dim=1)).cpu().detach().numpy())
@@ -179,6 +190,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             loss_string = "Loss: %s" % "{0:.5f}".format(l.item())
             del valInputs, valLabels
             torch.cuda.empty_cache()
+            #break
 
         epoch_val_loss = np.mean(loss_validation)
         epoch_val_acc  = np.mean(acc_validation)
@@ -233,31 +245,44 @@ def eval_classifier(classifier, training_text, modelName, outdir,
     qcd_idxs = testingLabels[:,-1].astype(bool)
     utils.sculpting_curves(predictions[qcd_idxs,-1], testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="QCD")
 
-    prob_bb = predictions[qcd_idxs,0] / (predictions[qcd_idxs,0] + predictions[qcd_idxs,-1])
-    utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
+
+    if args.is_binary:
+        prob_2prong = predictions[qcd_idxs,0]
+        utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="2prong")
+
+    else:
+        prob_bb = predictions[qcd_idxs,0]
+        utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
+        prob_cc = predictions[qcd_idxs,1]
+        utils.sculpting_curves(prob_cc, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
+        prob_qq = predictions[qcd_idxs,2]
+        utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
 
 
 if labelsTrain.shape[1] == 2:
     loss = nn.BCELoss(reduction='mean') 
 elif labelsTrain.shape[1] == 4:
-    loss = losses.all_vs_QCD #nn.CrossEntropyLoss()
+    loss = losses.adversarial #losses.all_vs_QCD #nn.CrossEntropyLoss()
+
 else:
     raise ValueError("Don't understand shape")
-DNN=True
+
+DNN=False
 if DNN:
     model = models.DNN(particleDataTrain.shape[1]*particleDataTrain.shape[2],labelsTrain.shape[1]).to(device)
     modelName = "DNN_test" 
     outdir = "/{}/{}/".format(args.opath,modelName.replace(' ','_'))
-    utils.makedir(outdir)
+    outdir = utils.makedir(outdir)
 
     if args.mpath:
         run_inference(args.mpath, args.plot_text, modelName, args.mpath+"_plots",
                       model, particleDataTest, labelsTest, singletonDataTest)
 
     else: 
-        model = train_classifier(model, loss, 1000,1, modelName, outdir+"/models/", particleDataTrain, particleDataVal, labelsTrain, labelsVal)
-        eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest) 
-PN=True
+        model = train_classifier(model, loss, 4000,5, modelName, outdir+"/models/", particleDataTrain, particleDataVal, labelsTrain, labelsVal,jetMassTrainingData=singletonDataTrain[:,0] )
+        eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest,) 
+
+PN=False
 if PN: 
     model = models.GraphNetnoSV(n_particles,labelsTrain.shape[1],5,18,softmax=True).to(device)
     modelName = "IN_test"
@@ -281,23 +306,29 @@ if PN:
 
 IN=True
 if IN: 
-    model = models.GraphNetnoSV(n_particles,labelsTrain.shape[1],5,18,softmax=True).to(device)
+    model = models.GraphNetv2(n_particles,labelsTrain.shape[1],5,hidden=40,De=80,Do=20,softmax=True).to(device)
+    print(model)
     modelName = "IN_test"
     outdir = "/{}/{}/".format(args.opath,modelName.replace(' ','_'))
-    utils.makedir(outdir)
+    outdir = utils.makedir(outdir)
 
     #somehow the (parts,features) axes get flipped in the IN 
     particleDataTrain = np.swapaxes(particleDataTrain,1,2)
     particleDataVal = np.swapaxes(particleDataVal,1,2)
     particleDataTest = np.swapaxes(particleDataTest,1,2)
-
+    #print(particleDataTrain[0])
+    #print(particleDataTrain[1])
+ 
+    print(particleDataTrain.shape)
+    #particleDataTrain = particleDataTrain.
+    model = torch.nn.DataParallel(model)
     
     if args.mpath:
         run_inference(args.mpath, args.plot_text, modelName, args.mpath+"_plots", 
                       model, particleDataTest, labelsTest, singletonDataTest)
     else: 
-        model = train_classifier(model, loss, 1000,10, modelName, outdir+"/models/", 
-                                 particleDataTrain, particleDataVal, labelsTrain, labelsVal)
+        model = train_classifier(model, loss, 1028,5, modelName, outdir+"/models/", 
+                                 particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0])
         eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest) 
 
 
