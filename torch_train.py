@@ -45,7 +45,7 @@ if args.opath:
 srcDir = '/work/tier3/jkrupa/FlatSamples/' 
 
 n_particle_features = 6
-n_particles = 100
+n_particles = 60
 n_vertex_features = 13
 n_vertex = 5
 
@@ -148,7 +148,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         one_hots = torch.eye(len(mass_hist))
         one_hots = torch.repeat_interleave(one_hots, mass_hist, dim=0)
         print(one_hots)
-        print(one_hots.shape)
+        print("one_hots.shape",one_hots.shape)
     #sys.exit(1)
     for iepoch in range(nepochs):
         loss_training, acc_training = [], []
@@ -162,7 +162,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             mass = torch.FloatTensor(jetMassTrainingData[istep*batchSize:(istep+1)*batchSize]).cuda()
 
             output = classifier(batchInputs)
-            l = loss(output, batchLabels, torch.IntTensor(trainingLabels).cuda(), one_hots.cuda(), 100.)
+            l = loss(output, batchLabels, torch.BoolTensor(trainingLabels).cuda(), one_hots[istep*batchSize:(istep+1)*batchSize].cuda().transpose(0,1), 100.)
             #print(output) 
             loss_training.append(l.item())
             acc_training.append(accuracy(output,torch.argmax(batchLabels.squeeze(), dim=1)).cpu().detach().numpy())
@@ -182,7 +182,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             valLabels = torch.FloatTensor(validationLabels[istep*batchSize:(istep+1)*batchSize]).cuda()
 
             output = classifier(valInputs)
-            l_val  = loss(output, valLabels, torch.IntTensor(trainingLabels).cuda(), one_hots.cuda(), 100.)
+            l_val  = loss(output, valLabels, torch.IntTensor(trainingLabels).cuda(), one_hots[istep*batchSize:(istep+1)*batchSize].cuda(), 100.)
  
             loss_validation.append(l_val.item())
             acc_validation.append(accuracy(output,torch.argmax(valLabels.squeeze(), dim=1)).cpu().detach().numpy())
@@ -248,7 +248,7 @@ def eval_classifier(classifier, training_text, modelName, outdir,
 
     if args.is_binary:
         prob_2prong = predictions[qcd_idxs,0]
-        utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="2prong")
+        utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="Z\'")
 
     else:
         prob_bb = predictions[qcd_idxs,0]
@@ -259,15 +259,15 @@ def eval_classifier(classifier, training_text, modelName, outdir,
         utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
 
 
-if labelsTrain.shape[1] == 2:
-    loss = nn.BCELoss(reduction='mean') 
-elif labelsTrain.shape[1] == 4:
-    loss = losses.adversarial #losses.all_vs_QCD #nn.CrossEntropyLoss()
+#if labelsTrain.shape[1] == 2:
+#    loss = nn.BCELoss(reduction='mean') 
+#elif labelsTrain.shape[1] == 4:
+loss = losses.adversarial #losses.all_vs_QCD #nn.CrossEntropyLoss()
 
-else:
-    raise ValueError("Don't understand shape")
+#else:
+#    raise ValueError("Don't understand shape")
 
-DNN=False
+DNN=0
 if DNN:
     model = models.DNN(particleDataTrain.shape[1]*particleDataTrain.shape[2],labelsTrain.shape[1]).to(device)
     modelName = "DNN_test" 
@@ -294,7 +294,8 @@ if PN:
     particleDataVal = np.swapaxes(particleDataVal,1,2)
     particleDataTest = np.swapaxes(particleDataTest,1,2)
 
-    
+    print(particleDataTrain[0]) 
+    print(particleDataTrain.shape) 
     if args.mpath:
         run_inference(args.mpath, args.plot_text, modelName, args.mpath+"_plots", 
                       model, particleDataTest, labelsTest, singletonDataTest)
@@ -304,10 +305,10 @@ if PN:
         eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest) 
 
 
-IN=True
+IN=1
 if IN: 
-    model = models.GraphNetv2(n_particles,labelsTrain.shape[1],5,hidden=40,De=80,Do=20,softmax=True).to(device)
-    print(model)
+    model = models.GraphNetv2(n_particles,labelsTrain.shape[1],5,hidden=40,De=40,Do=30,softmax=True)
+    model = model.to(device)
     modelName = "IN_test"
     outdir = "/{}/{}/".format(args.opath,modelName.replace(' ','_'))
     outdir = utils.makedir(outdir)
@@ -316,18 +317,14 @@ if IN:
     particleDataTrain = np.swapaxes(particleDataTrain,1,2)
     particleDataVal = np.swapaxes(particleDataVal,1,2)
     particleDataTest = np.swapaxes(particleDataTest,1,2)
-    #print(particleDataTrain[0])
-    #print(particleDataTrain[1])
- 
-    print(particleDataTrain.shape)
-    #particleDataTrain = particleDataTrain.
+
     model = torch.nn.DataParallel(model)
     
     if args.mpath:
         run_inference(args.mpath, args.plot_text, modelName, args.mpath+"_plots", 
                       model, particleDataTest, labelsTest, singletonDataTest)
     else: 
-        model = train_classifier(model, loss, 1028,5, modelName, outdir+"/models/", 
+        model = train_classifier(model, loss, 1024,20, modelName, outdir+"/models/", 
                                  particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0])
         eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest) 
 

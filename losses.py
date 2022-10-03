@@ -12,21 +12,28 @@ def adversarial(output, target, full_labels, one_hots, lambda_adversarial):
     #one_hots = torch.repeat_interleave(one_hots, hist, dim=0)
     
     #mass histogram for true b events weighted by b prob 
-
+   
     #print(one_hots.shape)
+    #print(output[full_labels[:,0]])
+    #print(output[full_labels[:,0]].shape)
+    
     #torch.mm(torch.diag(target[:,0]),output).shape
     #mass histogram for true b events
-    hist_alltag_b = torch.mm(torch.transpose(one_hots,0,1), torch.mm(torch.diag(full_labels[:,0]),output))
+    print(one_hots.shape,torch.diagflat(target[:,0]).shape,output.shape)
+    hist_alltag_b = torch.mm(one_hots, torch.mm(torch.diagflat(target[:,0]),output))
+    #print(torch.diagflat(target[:,0]))
+    #print(hist_alltag_b)
+    #print(hist_alltag_b.shape)
     #mass histogram for true b events weighted by qcd prob
-    hist_qcdtag_b = hist_alltag_b[:,-1]/torch.sum(hist_alltag_b[:,-1])
+    ###hist_qcdtag_b = hist_alltag_b[:,-1]/torch.sum(hist_alltag_b[:,-1])
     #mass histogram for true b events weighted by b prob
-    hist_btag_b   = hist_alltag_b[:,0]/torch.sum(hist_alltag_b[:,0])
+    ###hist_btag_b   = hist_alltag_b[:,0]/torch.sum(hist_alltag_b[:,0])
 
-    hist_average_b = (hist_btag_b + hist_qcdtag_b)/2.0
+    ###hist_average_b = (hist_btag_b + hist_qcdtag_b)/2.0
     #print(hist_average_b)
-    bce_loss = all_vs_QCD(output, target)
+    bce_loss = nn.functional.binary_cross_entropy(output,target)# all_vs_QCD(output, target)
     
-    return bce_loss + lambda_adversarial*(torch.nn.functional.kl_div(hist_qcdtag_b,hist_average_b) + torch.nn.functional.kl_div(hist_btag_b,hist_average_b))/2.
+    return bce_loss## + lambda_adversarial*(torch.nn.functional.kl_div(hist_qcdtag_b,hist_average_b) + torch.nn.functional.kl_div(hist_btag_b,hist_average_b))/2.
 def all_vs_QCD(output, target):
 
 

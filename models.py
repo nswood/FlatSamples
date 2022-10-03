@@ -5,7 +5,7 @@ import itertools
 # Defines the interaction matrices
 
 class GraphNetv2(nn.Module):
-    def __init__(self, n_constituents, n_targets, params, hidden=40, De=80, Do=15, dropout=0.1, 
+    def __init__(self, n_constituents, n_targets, params, hidden=20, De=20, Do=20, dropout=0.1, 
                  softmax=False, attention_flag=False):
         super(GraphNetv2, self).__init__()
         self.hidden = int(hidden)
@@ -22,16 +22,17 @@ class GraphNetv2(nn.Module):
         self.softmax = softmax
         self.relu = nn.ReLU()
         self.attention_flag = attention_flag 
-        
+    
+        self.batchnorm = nn.BatchNorm1d(params)        
 
-        self.fr1 = nn.Conv1d(2*self.P, self.De, kernel_size=1).cuda()
-        self.fr2 = nn.Conv1d(self.De, int(self.De/2), kernel_size=1).cuda()
-        self.fr3 = nn.Conv1d(int(self.De/2), int(self.De/4), kernel_size=1).cuda()
-        self.fr_batchnorm = nn.BatchNorm1d(int(self.De/4),  momentum=0.6).cuda()
+        self.fr1 = nn.Conv1d(2*self.P, 4*self.De, kernel_size=1).cuda()
+        self.fr2 = nn.Conv1d(4*self.De, 2*self.De, kernel_size=1).cuda()
+        self.fr3 = nn.Conv1d(2*self.De, self.De, kernel_size=1).cuda()
+        self.fr_batchnorm = nn.BatchNorm1d(self.De,  momentum=0.6).cuda()
         
-        self.fo1 = nn.Conv1d(self.P + self.Do, self.hidden, kernel_size=1).cuda()
-        self.fo2 = nn.Conv1d(self.hidden, int(self.hidden/2), kernel_size=1).cuda()
-        self.fo3 = nn.Conv1d(int(self.hidden/2), self.Do, kernel_size=1).cuda()
+        self.fo1 = nn.Conv1d(self.P + self.De, 2*self.hidden, kernel_size=1).cuda()
+        self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
+        self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
         
         # Attention stuff
         if attention_flag: 
@@ -58,43 +59,29 @@ class GraphNetv2(nn.Module):
         self.Rs = (self.Rs).cuda()
 
     def forward(self, x):
-        #print("x.shape",x.shape)
-        #print("self.Rr.shape",self.Rr.shape)
         ###PF Candidate - PF Candidate###
+        x = self.batchnorm(x)
         Orr = self.tmul(x, self.Rr)
         Ors = self.tmul(x, self.Rs)
         B = torch.cat([Orr, Ors], 1)
-        print("B",B.shape)
         ### First MLP ###
-        #B = torch.transpose(B, 1, 2).contiguous()
-        B = nn.functional.relu(self.fr1(B))
-        #print("B",B.shape)
-        B = nn.functional.relu(self.fr2(B))
-        #print("B",B.shape)
-        E = nn.functional.relu(self.fr3(B))
-        #print("E",E.shape)
-        E = self.fr_batchnorm(E) 
-        print("E",E.shape)
+        B = self.relu(self.fr1(B))
+        B = self.relu(self.fr2(B))
+        E = self.relu(self.fr3(B))
+        #E = self.fr_batchnorm(E) 
         del B
-        #E = torch.transpose(E, 2, 1).contiguous()
         Ebar_pp = self.tmul(E, torch.transpose(self.Rr, 0, 1).contiguous())
         del E
-        print("Ebar_pp",Ebar_pp.shape)
         ####Final output matrix for particles###
         C = torch.cat([x, Ebar_pp], 1)
-        print("C",C.shape)
         del Ebar_pp; torch.cuda.empty_cache()
         #C = torch.transpose(C, 2, 1).contiguous()
         ### Second MLP ###
-        C = nn.functional.relu(self.fo1(C))
-        #print("C",C.shape)
-        C = nn.functional.relu(self.fo2(C))
-        #print("C",C.shape)
-        O = nn.functional.relu(self.fo3(C))
-        #print("O",O.shape)
+        C = self.relu(self.fo1(C))
+        C = self.relu(self.fo2(C))
+        O = self.relu(self.fo3(C))
         del C
         O = torch.transpose(O, 1, 2).contiguous()
-        #print("O",O.shape)
         
         #Taking the sum of over each particle/vertex
         if self.attention_flag: 
@@ -107,16 +94,14 @@ class GraphNetv2(nn.Module):
             N = self.linear_3(torch.flatten(N,start_dim=1))
         else: 
             N = torch.sum(O, dim=1)
-        
         del O
         
         ### Classification MLP ###
         N = self.fc_fixed(N)
-        #print("N",N.shape)
+        #print("output",N.shape)
         
         if self.softmax:
             N = nn.Softmax(dim=1)(N)
-        #print("N",N.shape)
     
         return N
         del N; torch.cuda.empty_cache()
@@ -278,8 +263,8 @@ class DNN(nn.Module):
         #self.flat = torch.flatten()
         self.dropout = nn.Dropout(p=0.25)
         self.b0 = nn.BatchNorm1d(n_inputs).cuda()
-        self.f0 = nn.Linear(n_inputs, 100).cuda()
-        self.f1 = nn.Linear(100, 40).cuda()
+        self.f0 = nn.Linear(n_inputs, 50).cuda()
+        self.f1 = nn.Linear(50, 40).cuda()
         self.f1b = nn.Linear(40, 40).cuda()
         self.b2 = nn.BatchNorm1d(40).cuda()
         self.f2 = nn.Linear(40, 10).cuda()
