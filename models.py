@@ -5,13 +5,14 @@ import itertools
 # Defines the interaction matrices
 
 class GraphNetv2(nn.Module):
-    def __init__(self, n_constituents, n_targets, params, hidden=20, De=20, Do=20, dropout=0.1, 
+    def __init__(self, n_constituents, n_targets, params, n_vertices=0, params_v=0, pv_branch=False,  vv_branch=False, hidden=20, De=20, Do=20, dropout=0.1, 
                  softmax=False, attention_flag=False):
         super(GraphNetv2, self).__init__()
         self.hidden = int(hidden)
         self.P = params
-        self.Nv = 0 
+        self.Nv = n_vertices		
         self.N = n_constituents
+        self.S = params_v
         self.Nr = self.N * (self.N - 1)
         self.Nt = self.N * self.Nv
         self.Ns = self.Nv * (self.Nv - 1)
@@ -19,20 +20,44 @@ class GraphNetv2(nn.Module):
         self.Do = Do
         self.n_targets = n_targets
         self.assign_matrices()
+        self.assign_matrices_SV()
+        self.pv_branch = pv_branch
+        self.vv_branch = vv_branch
         self.softmax = softmax
         self.relu = nn.ReLU()
         self.attention_flag = attention_flag 
     
         self.batchnorm = nn.BatchNorm1d(params)        
+        self.batchnormSV = nn.BatchNorm1d(params_v)        
 
         self.fr1 = nn.Conv1d(2*self.P, 4*self.De, kernel_size=1).cuda()
         self.fr2 = nn.Conv1d(4*self.De, 2*self.De, kernel_size=1).cuda()
         self.fr3 = nn.Conv1d(2*self.De, self.De, kernel_size=1).cuda()
         self.fr_batchnorm = nn.BatchNorm1d(self.De,  momentum=0.6).cuda()
-        
-        self.fo1 = nn.Conv1d(self.P + self.De, 2*self.hidden, kernel_size=1).cuda()
-        self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
-        self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
+
+        if self.pv_branch:
+            self.assign_matrices_SV()
+            self.fr1_pv = nn.Conv1d(self.S + self.P, self.hidden, kernel_size=1).cuda()
+            self.fr2_pv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1).cuda()
+            self.fr3_pv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1).cuda()
+
+        if self.vv_branch:
+            self.assign_matrices_SVSV()
+
+            self.fr1_vv = nn.Conv1d(2 * self.S + self.Dr, self.hidden, kernel_size=1).cuda()
+            self.fr2_vv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1).cuda()
+            self.fr3_vv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1).cuda() 
+
+
+        if self.pv_branch:
+            self.fo1 = nn.Conv1d(self.P + (2 * self.De), 2*self.hidden, kernel_size=1).cuda()
+            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
+            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
+
+        else:            
+            self.fo1 = nn.Conv1d(self.P + self.De, 2*self.hidden, kernel_size=1).cuda()
+            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
+            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
         
         # Attention stuff
         if attention_flag: 
@@ -47,6 +72,8 @@ class GraphNetv2(nn.Module):
             self.linear_3 = nn.Linear(Do*self.N, Do).cuda()
             
         self.fc_fixed = nn.Linear(self.Do, self.n_targets).cuda()
+
+
             
     def assign_matrices(self):
         self.Rr = torch.zeros(self.N, self.Nr)
@@ -58,7 +85,27 @@ class GraphNetv2(nn.Module):
         self.Rr = (self.Rr).cuda()
         self.Rs = (self.Rs).cuda()
 
-    def forward(self, x):
+    def assign_matrices_SV(self):
+        self.Rk = torch.zeros(self.N, self.Nt)
+        self.Rv = torch.zeros(self.Nv, self.Nt)
+        receiver_sender_list = [i for i in itertools.product(range(self.N), range(self.Nv))]
+        for i, (k, v) in enumerate(receiver_sender_list):
+            self.Rk[k, i] = 1
+            self.Rv[v, i] = 1
+        self.Rk = (self.Rk).cuda()
+        self.Rv = (self.Rv).cuda()
+
+    def assign_matrices_SVSV(self):
+        self.Rl = torch.zeros(self.Nv, self.Ns)
+        self.Ru = torch.zeros(self.Nv, self.Ns)
+        receiver_sender_list = [i for i in itertools.product(range(self.Nv), range(self.Nv)) if i[0]!=i[1]]
+        for i, (l, u) in enumerate(receiver_sender_list):
+            self.Rl[l, i] = 1
+            self.Ru[u, i] = 1
+        self.Rl = (self.Rl).cuda()
+        self.Ru = (self.Ru).cuda()
+
+    def forward(self, x, y=None):
         ###PF Candidate - PF Candidate###
         x = self.batchnorm(x)
         Orr = self.tmul(x, self.Rr)
@@ -72,14 +119,43 @@ class GraphNetv2(nn.Module):
         del B
         Ebar_pp = self.tmul(E, torch.transpose(self.Rr, 0, 1).contiguous())
         del E
+
+       
+        ####Secondary Vertex - PF Candidate### 
+        if self.pv_branch:
+            y = self.batchnormSV(y)
+            Ork = self.tmul(x, self.Rk)
+            Orv = self.tmul(y, self.Rv)
+            B = torch.cat([Ork, Orv], 1)
+            #assert torch.isfinite(B).all()
+            B = self.relu(self.fr1_pv(B))
+            #assert torch.isfinite(B).all()
+            B = self.relu(self.fr2_pv(B))
+            #assert torch.isfinite(B).all()
+            E = self.relu(self.fr3_pv(B))
+            #assert torch.isfinite(E).all()
+            del B
+            Ebar_pv = self.tmul(E, torch.transpose(self.Rk, 0, 1).contiguous())
+            #assert torch.isfinite(Ebar_pv).all()
+ 
+
         ####Final output matrix for particles###
-        C = torch.cat([x, Ebar_pp], 1)
+        if self.pv_branch:
+            C = torch.cat([x, Ebar_pp, Ebar_pv], 1)
+            #assert torch.isfinite(C).all()
+            del Ebar_pv
+        else:
+            C = torch.cat([x, Ebar_pp], 1)
+
         del Ebar_pp; torch.cuda.empty_cache()
         #C = torch.transpose(C, 2, 1).contiguous()
         ### Second MLP ###
         C = self.relu(self.fo1(C))
+        #assert torch.isfinite(C).all()
         C = self.relu(self.fo2(C))
+        #assert torch.isfinite(C).all()
         O = self.relu(self.fo3(C))
+        #assert torch.isfinite(O).all()
         del C
         O = torch.transpose(O, 1, 2).contiguous()
         
@@ -94,6 +170,7 @@ class GraphNetv2(nn.Module):
             N = self.linear_3(torch.flatten(N,start_dim=1))
         else: 
             N = torch.sum(O, dim=1)
+        #assert torch.isfinite(N).all()
         del O
         
         ### Classification MLP ###

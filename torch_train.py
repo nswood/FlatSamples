@@ -3,7 +3,7 @@ import os
 import numpy as np
 import h5py
 import json
-import setGPU
+#import setGPU
 import sklearn
 import corner
 import scipy
@@ -30,8 +30,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 np.random.seed(42)
 import argparse
 parser = argparse.ArgumentParser(description='Test.')                                 
+parser.add_argument('--loss', action='store', type=str, help='Name of loss to use.') 
 parser.add_argument('--opath', action='store', type=str, help='Path to output files.') 
 parser.add_argument('--mpath', action='store', type=str, help='Path to model for inference+plotting.') 
+parser.add_argument('--nparts', action='store', type=int,default=50, help='Number of particles.') 
+parser.add_argument('--nepochs', action='store', type=int,default=10, help='Number of training epochs.') 
+parser.add_argument('--LAMBDA_ADV', action='store', type=float,default=None, help='Adversarial lambda.') 
 parser.add_argument('--plot_text', action='store', type=str, help='Text to add to plot (: delimited).') 
 parser.add_argument('--plot_features', action='store_true', default=False, help='Flag to plot features.') 
 parser.add_argument('--is_binary', action='store_true', default=False, help='Train only Z\'(inclusive) vs QCD.') 
@@ -39,23 +43,64 @@ parser.add_argument('--no_heavy_flavorQCD', action='store_true', default=False, 
 parser.add_argument('--one_hot_encode_pdgId', action='store_true', default=False, help='One-hot-encode particle pdgId.') 
 
 args = parser.parse_args()
+
+assert(args.loss)
+   
 if args.opath:
     os.system("mkdir -p "+args.opath)
+
 
 srcDir = '/work/tier3/jkrupa/FlatSamples/' 
 
 n_particle_features = 6
-n_particles = 60
+n_particles = args.nparts
 n_vertex_features = 13
 n_vertex = 5
+batchsize = 2000
+n_epochs = args.nepochs
 
+print("Running with %i particle features, %i particles, %i vertex features, %i vertices, %i batchsize, %i epochs"%(n_particle_features,n_particles,n_vertex_features,n_vertex,batchsize,n_epochs))
+
+if args.loss == 'bce':
+    loss = nn.BCELoss()
+elif args.loss == 'all_vs_qcd':
+    loss = losses.all_vs_QCD
+elif args.loss == 'jsd':
+    loss = losses.jsd
+elif args.loss == 'disco':
+    loss = losses.disco
+else:
+    raise NameError("Don't understand loss")
+
+if (args.loss == 'jsd' or args.loss == 'disco') and not args.LAMBDA_ADV:
+    raise ValueError("must provide lambda_adv for adversarial")
 # convert training file
 data = h5py.File(os.path.join(srcDir, 'total_df.h5'),'r')
+print(data['SV_features'].shape)
 particleData  = utils.reshape_inputs(data['p_features'], n_particle_features)
 vertexData    = utils.reshape_inputs(data['SV_features'], n_vertex_features)
+print(vertexData.shape)
 singletonData = np.array(data['singletons'])
 labels        = singletonData[:,-3:]
 singletonFeatureData = np.array(data['singleton_features'])
+
+#print("Nans:",np.where(particleData==np.nan)[0], np.where(vertexData==np.nan)[0], np.where(singletonData==np.nan)[0], np.where(labels==np.nan)[0], np.where(singletonFeatureData==np.nan)[0])
+#print("Infs:",np.where(particleData==np.inf)[0], np.where(vertexData==np.inf)[0], np.where(singletonData==np.inf)[0], np.where(labels==np.inf)[0], np.where(singletonFeatureData==np.inf)[0])
+#print("negInfs:",np.where(particleData==np.isneginf)[0], np.where(vertexData==np.isneginf)[0], np.where(singletonData==np.isneginf)[0], np.where(labels==np.isneginf)[0], np.where(singletonFeatureData==np.isneginf)[0])
+
+#nans = [item for sublist in (np.where(particleData==np.nan)[0] , np.where(vertexData==np.nan)[0] , np.where(singletonData==np.nan)[0] ,  np.where(labels==np.nan)[0] , np.where(singletonFeatureData==np.nan)[0] , np.where(particleData==np.inf)[0] , np.where(vertexData==np.inf)[0] , np.where(singletonData==np.inf)[0] ,  np.where(labels==np.inf)[0] , np.where(singletonFeatureData==np.inf)[0]) for item in sublist]
+#print(nans) 
+
+x = np.where(~np.isfinite(vertexData).all(axis=1))
+print("not finite: ",x[0])
+
+nan_mask = np.ones(len(particleData),dtype=bool)
+nan_mask[x[0]] = False 
+particleData = particleData[nan_mask]
+vertexData = vertexData[nan_mask]
+singletonData = singletonData[nan_mask]
+labels = labels[nan_mask]
+singletonFeatureData = singletonFeatureData[nan_mask]
 
 n_parts = np.count_nonzero(particleData[:,:,0],axis=1)
 n_parts = np.expand_dims(n_parts,axis=-1)
@@ -89,9 +134,7 @@ particleData, vertexData, singletonData, singletonFeatureData, labels = particle
 pdgIdIdx = -1
 pdgIdColumn = abs(particleData[:,:,pdgIdIdx])
 
-particleData = particleData[:,:n_particles,:5]
-
-print("Nans: ",(np.argwhere(np.isnan(particleData)),np.argwhere(np.isnan(vertexData))))
+particleData = particleData[:,:n_particles,:n_particle_features]
 
 if args.one_hot_encode_pdgId:
     print("one hot encoding particle pdgId")
@@ -138,18 +181,14 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
     acc_vals_training = np.zeros(nepochs)
     acc_vals_validation = np.zeros(nepochs)   
 
-    accuracy = Accuracy().cuda()
+    accuracy = Accuracy().to(device)
     model_dir = outdir
     os.system("mkdir -p "+model_dir)
-    
+    n_massbins = 20
     if jetMassTrainingData is not None:
-        mass_hist = torch.histc(torch.FloatTensor(jetMassTrainingData), bins=20, min=30., max=400.)
-        mass_hist = mass_hist.to(torch.int32)
-        one_hots = torch.eye(len(mass_hist))
-        one_hots = torch.repeat_interleave(one_hots, mass_hist, dim=0)
-        print(one_hots)
-        print("one_hots.shape",one_hots.shape)
-    #sys.exit(1)
+        bins = torch.linspace(30.,400.,n_massbins)
+        one_hots = torch.bucketize(torch.FloatTensor(jetMassTrainingData),bins)
+       
     for iepoch in range(nepochs):
         loss_training, acc_training = [], []
         loss_validation, acc_validation = [], []
@@ -157,13 +196,23 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         for istep in tqdm(range(int(len(particleTrainingData)/batchSize))):
             #if istep>10 : continue 
             optimizer.zero_grad()
-            batchInputs = torch.FloatTensor(particleTrainingData[istep*batchSize:(istep+1)*batchSize]).cuda()
-            batchLabels = torch.FloatTensor(trainingLabels[istep*batchSize:(istep+1)*batchSize]).cuda()
-            mass = torch.FloatTensor(jetMassTrainingData[istep*batchSize:(istep+1)*batchSize]).cuda()
+            batchInputs = torch.FloatTensor(particleTrainingData[istep*batchSize:(istep+1)*batchSize]).to(device)
+            batchLabels = torch.FloatTensor(trainingLabels[istep*batchSize:(istep+1)*batchSize]).to(device)
+            mass = torch.FloatTensor(jetMassTrainingData[istep*batchSize:(istep+1)*batchSize]).to(device)
 
-            output = classifier(batchInputs)
-            l = loss(output, batchLabels, torch.BoolTensor(trainingLabels).cuda(), one_hots[istep*batchSize:(istep+1)*batchSize].cuda().transpose(0,1), 100.)
-            #print(output) 
+            if svTrainingData is not None:
+                batchInputsSV = torch.FloatTensor(svTrainingData[istep*batchSize:(istep+1)*batchSize]).to(device)
+                output = classifier(batchInputs, batchInputsSV)
+            else:
+                output = classifier(batchInputs)
+
+            if args.loss == 'jsd':
+                l = loss(output, batchLabels, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
+            elif args.loss == 'disco':
+                l = loss(output, batchLabels, mass, LAMBDA_ADV=args.LAMBDA_ADV)
+            else:
+                l = torch.nn.functional.binary_cross_entropy(output, batchLabels)
+
             loss_training.append(l.item())
             acc_training.append(accuracy(output,torch.argmax(batchLabels.squeeze(), dim=1)).cpu().detach().numpy())
 
@@ -178,12 +227,21 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         #sys.exit(1)
         for istep in tqdm(range(int(len(particleValidationData)/batchSize))): 
             #if istep>10 : continue 
-            valInputs = torch.FloatTensor(particleValidationData[istep*batchSize:(istep+1)*batchSize]).cuda()
-            valLabels = torch.FloatTensor(validationLabels[istep*batchSize:(istep+1)*batchSize]).cuda()
+            valInputs = torch.FloatTensor(particleValidationData[istep*batchSize:(istep+1)*batchSize]).to(device)
+            valLabels = torch.FloatTensor(validationLabels[istep*batchSize:(istep+1)*batchSize]).to(device)
+            mass = torch.FloatTensor(jetMassValidationData[istep*batchSize:(istep+1)*batchSize]).to(device)
 
-            output = classifier(valInputs)
-            l_val  = loss(output, valLabels, torch.IntTensor(trainingLabels).cuda(), one_hots[istep*batchSize:(istep+1)*batchSize].cuda(), 100.)
- 
+            if svTrainingData is not None:
+                valInputsSV = torch.FloatTensor(svValidationData[istep*batchSize:(istep+1)*batchSize]).to(device)
+                output = classifier(valInputs, valInputsSV)
+            else:
+                output = classifier(valInputs)
+            if args.loss == 'jsd':
+                l_val  = loss(output, valLabels, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
+            elif args.loss == 'disco':
+                l = loss(output, valLabels, mass, LAMBDA_ADV=args.LAMBDA_ADV)
+            else: 
+                l_val = torch.nn.functional.binary_cross_entropy(output, valLabels)
             loss_validation.append(l_val.item())
             acc_validation.append(accuracy(output,torch.argmax(valLabels.squeeze(), dim=1)).cpu().detach().numpy())
 
@@ -227,16 +285,25 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
 
 def eval_classifier(classifier, training_text, modelName, outdir, 
                     particleTestingData, testingLabels, testingSingletons,
-                    encoder=None):
+                    svTestingData=None,encoder=None):
   
     #classifier.eval()  
     with torch.no_grad():
         print("Running predictions on test data")
         predictions = []
-        for subtensor in np.array_split(particleTestingData,1000):
-            testInputs = torch.FloatTensor(subtensor).cuda()
-            predictions.append(classifier(testInputs).cpu().detach().numpy())
-            del testInputs
+  
+        if svTestingData is not None:
+            for subtensor,subtensorSV in zip(np.array_split(particleTestingData,1000),np.array_split(svTestingData,1000)):
+                testInputs = torch.FloatTensor(subtensor).to(device)
+                testInputsSV = torch.FloatTensor(subtensorSV).to(device)
+                predictions.append(classifier(testInputs,testInputsSV).cpu().detach().numpy())
+                del testInputs
+       
+        else:
+            for subtensor in np.array_split(particleTestingData,1000):
+                testInputs = torch.FloatTensor(subtensor).to(device)
+                predictions.append(classifier(testInputs).cpu().detach().numpy())
+                del testInputs
     predictions = [item for sublist in predictions for item in sublist]
     predictions = np.array(predictions).astype(np.float32)
     os.system("mkdir -p "+outdir)
@@ -259,13 +326,7 @@ def eval_classifier(classifier, training_text, modelName, outdir,
         utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
 
 
-#if labelsTrain.shape[1] == 2:
-#    loss = nn.BCELoss(reduction='mean') 
-#elif labelsTrain.shape[1] == 4:
-loss = losses.adversarial #losses.all_vs_QCD #nn.CrossEntropyLoss()
 
-#else:
-#    raise ValueError("Don't understand shape")
 
 DNN=0
 if DNN:
@@ -279,7 +340,7 @@ if DNN:
                       model, particleDataTest, labelsTest, singletonDataTest)
 
     else: 
-        model = train_classifier(model, loss, 4000,5, modelName, outdir+"/models/", particleDataTrain, particleDataVal, labelsTrain, labelsVal,jetMassTrainingData=singletonDataTrain[:,0] )
+        model = train_classifier(model, loss, 4000,5, modelName, outdir+"/models/", particleDataTrain, particleDataVal, labelsTrain, labelsVal,jetMassTrainingData=singletonDataTrain[:,0], jetMassValidationData=singletonDataVal[:,0] )
         eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest,) 
 
 PN=False
@@ -307,7 +368,8 @@ if PN:
 
 IN=1
 if IN: 
-    model = models.GraphNetv2(n_particles,labelsTrain.shape[1],5,hidden=40,De=40,Do=30,softmax=True)
+    model = models.GraphNetv2(n_particles,labelsTrain.shape[1],6,n_vertices=5, params_v=13, pv_branch=True, hidden=20, De=20, Do=20,softmax=True)
+    #model = models.GraphNetv2(n_particles,labelsTrain.shape[1],5,hidden=40,De=40,Do=30,softmax=True)
     model = model.to(device)
     modelName = "IN_test"
     outdir = "/{}/{}/".format(args.opath,modelName.replace(' ','_'))
@@ -317,6 +379,9 @@ if IN:
     particleDataTrain = np.swapaxes(particleDataTrain,1,2)
     particleDataVal = np.swapaxes(particleDataVal,1,2)
     particleDataTest = np.swapaxes(particleDataTest,1,2)
+    vertexDataTrain = np.swapaxes(vertexDataTrain,1,2)
+    vertexDataVal = np.swapaxes(vertexDataVal,1,2)
+    vertexDataTest = np.swapaxes(vertexDataTest,1,2)
 
     model = torch.nn.DataParallel(model)
     
@@ -325,8 +390,9 @@ if IN:
                       model, particleDataTest, labelsTest, singletonDataTest)
     else: 
         model = train_classifier(model, loss, 1024,20, modelName, outdir+"/models/", 
-                                 particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0])
-        eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest) 
+                                 particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0],
+                                 svTrainingData=vertexDataTrain, svValidationData=vertexDataVal,)
+        eval_classifier(model, args.plot_text, modelName, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest) 
 
 
 
