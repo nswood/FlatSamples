@@ -2,27 +2,37 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import matplotlib 
+import matplotlib.pylab as plt
 from sklearn.metrics import auc
 import mplhep as hep
-hep.style.use("CMS")
+import scipy
+#hep.style.use("CMS")
+from matplotlib import rcParams
+plt.style.use([hep.style.ROOT, hep.style.firamath])
+#plt.rcParams['text.usetex'] = True
+
+plt.rc('xtick', labelsize=10)
+plt.rc('ytick', labelsize=10)
+plt.rc('axes', labelsize=12)
+plt.rc('axes', titlesize=12)
+plt.rc('legend', fontsize=10)
 rlabel = "2017 (13 TeV)"
 inlay_font = {
-        'family' : 'normal',
+        'fontfamily' : 'arial',
         'weight' : 'normal',
-        'size'   : 10
+        'size'   : 14
 }
 axis_font = {
-        'family' : 'normal',
-        'weight' : 'normal',
-        'size'   : 16
+        #'fontfamily' : 'arial',
+        #'weight' : 'normal',
+        'size'   : 24
 }
 legend_font = {
-        #'family' : 'normal',
+        #'family' : 'sans-serif',
         #'weight' : 'normal',
-        'fontsize'   : 12
+        'size'   : 16
 }
 
-_singleton_labels=["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_fj_n2b1","zpr_fj_tau21","zpr_fj_particleNetMD_QCD", "zpr_fj_particleNetMD_Xbb", "zpr_fj_particleNetMD_Xcc", "zpr_fj_particleNetMD_Xqq","zpr_fj_nBHadrons","zpr_fj_nCHadrons", "zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour", "zpr_fj_nBtags","zpr_fj_nCtags","zpr_fj_nLtags","zpr_fj_nparts"]
 
 nbins = 20
 _titles={
@@ -66,6 +76,7 @@ _titles={
 
 }
 
+_singleton_labels=["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_fj_n2b1","zpr_fj_tau21","zpr_fj_particleNetMD_QCD", "zpr_fj_particleNetMD_Xbb", "zpr_fj_particleNetMD_Xcc", "zpr_fj_particleNetMD_Xqq","zpr_fj_nBHadrons","zpr_fj_nCHadrons", "zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour", "zpr_fj_nBtags","zpr_fj_nCtags","zpr_fj_nLtags","zpr_fj_nparts"]
 _singleton_features_labels=["zpr_fj_jetNSecondaryVertices","zpr_fj_jetNTracks","zpr_fj_tau1_trackEtaRel_0","zpr_fj_tau1_trackEtaRel_1","zpr_fj_tau1_trackEtaRel_2","zpr_fj_tau2_trackEtaRel_0","zpr_fj_tau2_trackEtaRel_1","zpr_fj_tau2_trackEtaRel_3","zpr_fj_tau1_flightDistance2dSig","zpr_fj_tau2_flightDistance2dSig","zpr_fj_tau1_vertexDeltaR","zpr_fj_tau1_vertexEnergyRatio","zpr_fj_tau2_vertexEnergyRatio","zpr_fj_tau1_vertexMass","zpr_fj_tau2_vertexMass","zpr_fj_trackSip2dSigAboveBottom_0","zpr_fj_trackSip2dSigAboveBottom_1","zpr_fj_trackSip2dSigAboveCharm","zpr_fj_trackSip3dSig_0","zpr_fj_trackSip3dSig_0","zpr_fj_tau1_trackSip3dSig_1","zpr_fj_trackSip3dSig_1","zpr_fj_tau2_trackSip3dSig_0","zpr_fj_tau2_trackSip3dSig_1","zpr_fj_trackSip3dSig_2","zpr_fj_trackSip3dSig_3","zpr_fj_z_ratio"]
 _p_features_labels=["zpr_PF_ptrel","zpr_PF_etarel","zpr_PF_phirel","zpr_PF_dz","zpr_PF_d0","zpr_PF_pdgId"]
 _SV_features_labels=["zpr_SV_mass","zpr_SV_dlen","zpr_SV_dlenSig","zpr_SV_dxy","zpr_SV_dxySig","zpr_SV_chi2","zpr_SV_ptrel","zpr_SV_x","zpr_SV_y","zpr_SV_z","zpr_SV_pAngle","zpr_SV_etarel","zpr_SV_phirel"]
@@ -84,7 +95,7 @@ def axis_settings(ax):
     #ax.xaxis.set_major_locator(plticker.MultipleLocator(base=20))
     ax.xaxis.set_minor_locator(plticker.AutoMinorLocator(5))
     ax.yaxis.set_minor_locator(plticker.AutoMinorLocator(5))
-    ax.tick_params(direction='in', axis='both', which='major', labelsize=15, length=12)#, labelleft=False )
+    ax.tick_params(direction='in', axis='both', which='major', labelsize=24, length=12)#, labelleft=False )
     ax.tick_params(direction='in', axis='both', which='minor' , length=6)
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')    
@@ -112,6 +123,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
         for ifeat in range(array.shape[-1]):
             plt.clf()
             fig,ax = plt.subplots() 
+            hep.cms.label("Preliminary",rlabel=rlabel, data=False)
             ax = axis_settings(ax)
             for ilabel in range(labels.shape[1]):
                try: 
@@ -130,8 +142,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
             ax.set_yscale('log')
             ax.set_xlabel(x_label,horizontalalignment='right',x=1.0,**axis_font)
             ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
-            ax.legend(loc="upper right",**legend_font)
-            hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+            ax.legend(loc="upper right",prop=legend_font)
             plt.tight_layout()
             plt.savefig(outdir+'/'+feature_labels[ifeat]+'.png')
             plt.savefig(outdir+'/'+feature_labels[ifeat]+'.pdf')
@@ -140,6 +151,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                 ibin=0
                 for msd_lo,msd_hi in [(40.,80.),(80.,120.),(120.,160.),(160.,250.),(250.,350.)]:
                     fig,ax = plt.subplots()
+                    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
                     for ilabel in range(labels.shape[1]):
                         msd_idxs = (array[:,0] > msd_lo) & (array[:,0] < msd_hi) & (labels[:,ilabel]==1)
                         tmp = array[msd_idxs,ifeat]
@@ -152,8 +164,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                     ax.set_yscale('log')
                     ax.set_xlabel(x_label,horizontalalignment='right',x=1.0,**axis_font)
                     ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
-                    ax.legend(loc="upper right",**legend_font)
-                    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+                    ax.legend(loc="upper right",prop=legend_font)
                     plt.tight_layout()
                     plt.savefig(outdir+'/'+feature_labels[ifeat]+'_msdbin'+str(ibin)+'.png')
                     plt.savefig(outdir+'/'+feature_labels[ifeat]+'_msdbin'+str(ibin)+'.pdf')
@@ -183,7 +194,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                     ax = axis_settings(ax)
                     ax.set_xlabel(x_label,horizontalalignment='right',x=1.0,**axis_font)
                     ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
-                    ax.legend(loc="upper right",**legend_font)
+                    ax.legend(loc="upper right",prop=legend_font)
                     hep.cms.label("Preliminary",rlabel=rlabel, data=False)
                     plt.tight_layout()
                     plt.savefig(outdir+'/'+'ipart_'+str(ipart)+'_'+feature_labels[ifeat]+'.png')
@@ -195,6 +206,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
 def plot_loss(loss_vals_training,loss_vals_validation,opath):
     plt.clf()
     fig,ax = plt.subplots()
+    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
     ax = axis_settings(ax)
  
     loss_vals_training = loss_vals_training[loss_vals_training!=0]
@@ -204,8 +216,7 @@ def plot_loss(loss_vals_training,loss_vals_validation,opath):
     ax.plot(range(1,len(loss_vals_validation)+1), loss_vals_validation, lw=2.0, label="validation") 
     ax.set_xlabel("Epoch",horizontalalignment='right',x=1.0,**axis_font)
     ax.set_ylabel("Loss",horizontalalignment='right',y=1.0,**axis_font)
-    ax.legend(loc="upper right",**legend_font)
-    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+    ax.legend(loc="upper right",prop=legend_font)
     plt.tight_layout()
     plt.savefig(opath+"/loss.png")
     plt.savefig(opath+"/loss.pdf")
@@ -217,6 +228,7 @@ def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, n
         processes = ["Z'(bb)","Z'(cc)","Z'(qq)","QCD"]
     plt.clf()
     fig,ax = plt.subplots()
+    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
     ax = axis_settings(ax)
     response_l = [] 
     bins=None
@@ -231,14 +243,13 @@ def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, n
         response_l.append(response)
 
     if plot:
-        ax.text(0.63,0.85,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
+        ax.text(0.60,0.85,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
         ax.set_yscale('log')
         ax = axis_settings(ax)
         ax.set_xlabel(processes[ilabel] + " output",horizontalalignment='right',x=1.0,**axis_font)
         ax.set_xlim(-0.01,1.01)
         ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
-        ax.legend(loc="upper right",**legend_font)
-        hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+        ax.legend(loc="upper right",prop=legend_font)
         plt.tight_layout()
         plt.savefig(opath+"/%s_response_class_%s.png"%(modelName,ilabel))
         plt.savefig(opath+"/%s_response_class_%s.pdf"%(modelName,ilabel))
@@ -266,6 +277,7 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName)
                 fpr_label_l.append(processes[itruth])
         plt.clf()
         fig,ax = plt.subplots()
+        hep.cms.label("Preliminary",rlabel=rlabel, data=False)
         ax = axis_settings(ax)
         for i in range(len(fpr_l)):
             fpr = np.round_(fpr_l[i],decimals=4)
@@ -282,8 +294,7 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName)
         ax.set_ylim(0.,1.0)
         ax.axvline(x=0.05,ls='--',lw=1.0,c='magenta')
         ax.text(0.63,0.2,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
-        ax.legend(loc="lower right",**legend_font)
-        hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+        ax.legend(loc="lower right",prop=legend_font)
         plt.tight_layout()
         plt.savefig(opath+"/%s_roc_class_%s.png"%(modelName,ilabel))
         plt.savefig(opath+"/%s_roc_class_%s.pdf"%(modelName,ilabel))
@@ -297,10 +308,31 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName)
 
     return 
 
+def plot_correlation(x,y,x_name,y_name,x_bins,y_bins,opath,name):
+    plt.clf()
+    fig,ax = plt.subplots()
+    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+    ax = axis_settings(ax)
+    #ax.scatter(x,y,s=0.1,c="black")
+    ax.hist2d(x,y,bins=(x_bins,y_bins),norm=matplotlib.colors.LogNorm(), cmap=matplotlib.cm.viridis)
+    ax.set_xlabel(x_name, horizontalalignment='right',x=1.0,**axis_font)
+    ax.set_ylabel(y_name, horizontalalignment='right',y=1.0,**axis_font)
+ 
+
+    #from mpl_toolkits.axes_grid1 import make_axes_locatable
+    #divider = make_axes_locatable(ax)
+    #cax = divider.append_axes('right', size='5%', pad=0.05)
+    #im = ax.imshow(data, cmap='bone')
+    #fig.colorbar(im, cax=cax, orientation='vertical')
+
+    plt.tight_layout()
+    plt.savefig(opath+"/2dcorr_%s.png"%(name))
+    plt.savefig(opath+"/2dcorr_%s.pdf"%(name))
+    
 def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath, modelName, score=""):
 
     ##This isn't enough bins???
-    QcdPredictionsPdf,edges = np.histogram(testQcdPredictions, bins=np.linspace(0.,1.,10000), density=True)
+    QcdPredictionsPdf,edges = np.histogram(testQcdPredictions, bins=np.linspace(0.,1.,100), density=True)
 
     #tot = 0
     #QcdPredictionsCdf = [] 
@@ -309,10 +341,16 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     #    tot += current
     #    QcdPredictionsCdf.append(tot)
 
-    if QcdPredictionsPdf.mean()<0.5:
-        QcdPredictionsPdf = QcdPredictionsPdf[::-1]
+    pctls = [0.05,0.10,0.25,0.75,1.00]
+    invert=False
+    print("before",QcdPredictionsPdf)
+    if testQcdPredictions.mean()<0.5:
+        #QcdPredictionsPdf = QcdPredictionsPdf[::-1]
+        invert=True
+        #pctls = [
+        pctls = [1-pctl for pctl in pctls]
+    print("after",QcdPredictionsPdf)
     QcdPredictionsCdf = np.cumsum(QcdPredictionsPdf)*(edges[1]-edges[0])
-    pctls = [0.02,0.05,0.10,0.25,0.75,1.00]
     cuts = np.searchsorted(QcdPredictionsCdf,pctls)
 
     
@@ -321,15 +359,46 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     training_text = training_text.split(":")
     if score:
         training_text.append(score + " score")
+
+
+
+    plt.clf()
+    fig,ax=plt.subplots()
+    hep.cms.label("Preliminary",rlabel=rlabel, data=False)
+    ax = axis_settings(ax)
+    for c,p in zip(cuts,pctls):
+        ax.hist(testQcdPredictions[testQcdPredictions<edges[c]] if not invert else testQcdPredictions[testQcdPredictions>edges[c]],
+                label="$\mathrm{\epsilon_{QCD}}=$%.2f"%(p if not invert else 1-p),
+                bins=np.linspace(-0.01,1.001,100),
+                histtype='step',
+                alpha=0.7,
+                density=True,
+                lw=2.0,
+        )
+    ax.set_xlabel("Tagger score",horizontalalignment='right',x=1.0,**axis_font)
+    ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
+    ax.text(0.56,0.82,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
+    ax.legend(loc="upper right")
+    plt.tight_layout()
+    plt.savefig(opath+"/%s_scores_after_cuts_%s.png"%(modelName,"_"+score if score else ""))
+    plt.savefig(opath+"/%s_scores_after_cuts_%s.pdf"%(modelName,"_"+score if score else ""))
+
     for i,label in enumerate(sculpting_vars): 
         plt.clf()
         fig,ax=plt.subplots()
+        hep.cms.label("Preliminary",rlabel=rlabel, data=False)
         ax = axis_settings(ax)
+
+
+        inclusive_hist,_ = np.histogram(testQcdKinematics[:,_singleton_labels.index(label)], bins=_titles[label]["bins"],)
+
         for c,p in zip(cuts,pctls):
             #print("QCD < %.2f"%edges[c], testQcdPredictions[testQcdPredictions<edges[c]])
-            KinematicsPassingCut = testQcdKinematics[testQcdPredictions<edges[c],_singleton_labels.index(label)]
+            KinematicsPassingCut = testQcdKinematics[testQcdPredictions<edges[c],_singleton_labels.index(label)] if not invert else testQcdKinematics[testQcdPredictions>edges[c],_singleton_labels.index(label)]
+            cut_hist,_ = np.histogram(KinematicsPassingCut,bins=_titles[label]["bins"],)
+            jsd = scipy.spatial.distance.jensenshannon(inclusive_hist,cut_hist)
             ax.hist(KinematicsPassingCut, 
-                    label="$\mathrm{\epsilon_{QCD}}=$%.2f"%(p), 
+                    label="$\mathrm{\epsilon_{QCD}}=$%.2f, %.2f"%((p if not invert else 1-p),0. if jsd == np.nan else jsd), 
                     bins=_titles[label]["bins"],
                     histtype='step',
                     alpha=0.7,
@@ -340,7 +409,6 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
         ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
         ax.text(0.56,0.82,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
         ax.legend(loc="upper right")
-        hep.cms.label("Preliminary",rlabel=rlabel, data=False)
         plt.tight_layout()
         plt.savefig(opath+"/%s_sculpting_qcd_var%i%s.png"%(modelName,i,"_"+score if score else ""))
         plt.savefig(opath+"/%s_sculpting_qcd_var%i%s.pdf"%(modelName,i,"_"+score if score else ""))

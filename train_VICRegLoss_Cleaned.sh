@@ -1,10 +1,10 @@
 #!/bin/bash
 
 
-for ii in 1 5 10 15 20 50;
- do for jj in 0. 1 5 10;
+for ii in 0.1 0.5 1.0 10.;
+ do for jj in 0. 0.1 1.0 10.;
     do 
       
-      python3 IN_FlatSamples_VICRegLoss_Cleaned.py --weightstd 1 --weightrepr 1 --weightcov ${ii} --weightCorr1 ${jj} --weightCorr2 0 --nepochs 30
+      python3 IN_FlatSamples_VICRegLoss_Cleaned.py --weightstd ${ii} --weightrepr ${ii} --weightcov ${jj} --weightCorr1 0. --weightCorr2 0. --nepochs 20
  done
 done

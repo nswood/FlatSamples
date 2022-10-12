@@ -52,14 +52,30 @@ class DiscoCorr(nn.Module):
             disco = 1-disco
         return disco
 
-def disco(output, target, mass, LAMBDA_ADV=10.):
+def disco_all_vs_QCD(output, target, mass, LAMBDA_ADV=10.):
     disco = DiscoCorr()
-    bce_loss = nn.functional.binary_cross_entropy(output,target)
-    #print("output",output.shape, "mass",mass.shape)
-    return bce_loss \
-        + LAMBDA_ADV*(disco(output[:,0], mass)) \
+    qcd_idxs = target[:,-1].to(torch.bool)
+    return all_vs_QCD(output,target) \
+        + LAMBDA_ADV*(disco(output[qcd_idxs,-1], mass[qcd_idxs])) \
 
-def jsd(output, target, one_hots, n_massbins=20,LAMBDA_ADV=10.):
+def disco(output, target, mass, bce_loss, LAMBDA_ADV=10.,):
+    disco = DiscoCorr()
+
+    if bce_loss: 
+        crossentropy = nn.BCELoss()
+    else:
+        crossentropy = nn.CrossEntropyLoss()
+    perf_loss = crossentropy(output,target)
+    qcd_idxs = target[:,-1].to(torch.bool)
+
+    if output.shape[1] == 4: 
+        mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]) + disco(output[qcd_idxs,2], mass[qcd_idxs]) + disco(output[qcd_idxs,3], mass[qcd_idxs]))
+    elif output.shape[1] == 2:
+        mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]))
+    return perf_loss + mass_loss
+
+
+def adversarial():
     #https://stackoverflow.com/questions/71049941/create-one-hot-encoding-for-values-of-histogram-bins
     one_hots = nn.functional.one_hot(one_hots, num_classes=-1).to(torch.float32)
 

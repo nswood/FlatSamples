@@ -62,11 +62,11 @@ weightCorr2 = args.weightCorr2 #(not really useful but could explore)
 batchSize = 6000
 n_Dim = 4
 n_epochs = args.nepochs
-CorrDim = 1
+CorrDim = 0
 mod = "vicreg"
 label='Contrastive'+'_n_epochs'+str(n_epochs)+'_ndim'+str(n_Dim)+'_batchSize'+str(batchSize) + '_weightrepr'+str(weightrepr) + '_weightcov'+str(weightcov) + '_weightstd'+str(weightstd) + '_weightCorr1'+str(weightCorr1) + '_weightCorr2'+str(weightCorr2)
 modelName = "DNN_FlatSamples_flatratio_" + label + mod
-outdir = '/home/tier3/jkrupa/public_html/zprlegacy/cl/' + modelName #everything will output here
+outdir = '/home/tier3/jkrupa/public_html/zprlegacy/cl_oct12/' + modelName #everything will output here
 try: 
     os.system("mkdir -p "+outdir) 
 except OSError as error: 
@@ -414,6 +414,9 @@ class VICRegLoss(torch.nn.Module):
         std_x = torch.sqrt(x_scale.var(dim=0) + 0.0001)
         std_y = torch.sqrt(y_scale.var(dim=0) + 0.0001)
         std_loss = torch.mean(F.relu(1 - std_x)) / 2 + torch.mean(F.relu(1 - std_y)) / 2
+
+        x_scale = x_scale/std_x
+        y_scale = y_scale/std_y
 
         cov_x = (x_scale.T @ x_scale) / (N - 1)
         cov_y = (y_scale.T @ y_scale) / (N - 1)
@@ -992,7 +995,7 @@ plt.savefig(outdir+"/jet_msd.pdf")
 #$\mathrm{Jet\ m_{SD}\ (GeV)}$
 
 loss_text = 'lambda_cor=%s, lambdacorr1=%s, lambdacorr2=%s'%(weightcov, weightCorr1, weightCorr2)
-loss_text = '$\lambda_{cov}=$%s, $\lambda_{corr}=$%s'%(weightcov, weightCorr1)#, weightCorr2)
+loss_text = '$\lambda_{MSE}$=%.1f, $\lambda_{STD}$=%.1f, $\lambda_{cov}=$%s, $\lambda_{corr}=$%s'%(weightrepr, weightstd, weightcov, weightCorr1)#, weightCorr2)
 #loss_text = "Contrastive Training "
 #encoder = GraphNetnoSV(particlesPostCut, n_Dim, entriesPerParticle, 15,
 #                      De=5,
