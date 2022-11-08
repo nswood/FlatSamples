@@ -27,7 +27,10 @@ import torch.nn.functional as F
 from fast_soft_sort.pytorch_ops import soft_rank
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score,  auc
+plt.ioff()
 
+import matplotlib
+matplotlib.use('Agg')
 
 # In[ ]:
 
@@ -62,11 +65,11 @@ weightCorr2 = args.weightCorr2 #(not really useful but could explore)
 batchSize = 6000
 n_Dim = 4
 n_epochs = args.nepochs
-CorrDim = 0
+CorrDim = 1
 mod = "vicreg"
 label='Contrastive'+'_n_epochs'+str(n_epochs)+'_ndim'+str(n_Dim)+'_batchSize'+str(batchSize) + '_weightrepr'+str(weightrepr) + '_weightcov'+str(weightcov) + '_weightstd'+str(weightstd) + '_weightCorr1'+str(weightCorr1) + '_weightCorr2'+str(weightCorr2)
 modelName = "DNN_FlatSamples_flatratio_" + label + mod
-outdir = '/home/tier3/jkrupa/public_html/zprlegacy/cl_oct12/' + modelName #everything will output here
+outdir = '/home/tier3/jkrupa/public_html/zprlegacy/cl_oct13/' + modelName #everything will output here
 try: 
     os.system("mkdir -p "+outdir) 
 except OSError as error: 
@@ -524,12 +527,12 @@ def train_encoder(encoder, batchSize, n_Dim, CorrDim, n_epochs, modelName, outdi
             optimizer.zero_grad()
 
             # Define training events
-            #trainingvMassSig, SigSort = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda().sort()
-            trainingvMassSig = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
-            #trainingvMassBkg, BkgSort = torch.FloatTensor(jetMassTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda().sort()
-            trainingvMassBkg = torch.FloatTensor(jetMassTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
-            trainingvSig = torch.FloatTensor(particleTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()#[SigSort]
-            trainingvBkg = torch.FloatTensor(particleTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()#[BkgSort]
+            trainingvMassSig, SigSort = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda().sort()
+            #trainingvMassSig = torch.FloatTensor(jetMassTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()
+            trainingvMassBkg, BkgSort = torch.FloatTensor(jetMassTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda().sort()
+            #trainingvMassBkg = torch.FloatTensor(jetMassTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()
+            trainingvSig = torch.FloatTensor(particleTrainingDataSig[i*batchSize:(i+1)*batchSize]).cuda()[SigSort]
+            trainingvBkg = torch.FloatTensor(particleTrainingDataBkg[i*batchSize:(i+1)*batchSize]).cuda()[BkgSort]
             trainingv1 = torch.cat((trainingvSig[:int(batchSize/2)], 
                                     trainingvBkg[:int(batchSize/2)]))
             trainingv1_mass = torch.cat(( trainingvMassSig[:int(batchSize/2)], 
@@ -828,7 +831,7 @@ def train_classifier(classifier, encoder, batchSize, n_Dim, CorrDim, n_epochs, m
         loss_vals_training.append(l_training)
         loss_vals_validation.append(l_val)
         epoch_idx += 1
-        if m > 8 and all(loss_vals_validation[max(0, m - 8):m] > min(np.append(loss_vals_validation[0:max(0, m - 8)], 200))):
+        if m > 25 and all(loss_vals_validation[max(0, m - 8):m] > min(np.append(loss_vals_validation[0:max(0, m - 8)], 200))):
             print('Early Stopping...')
             print(loss_vals_training, '\n', np.diff(loss_vals_training))
             break
@@ -968,7 +971,7 @@ def eval_classifier(classifier, encoder, loss_params_text, outdir):
         ax.text(0.6,1.03,loss_text, transform=ax.transAxes, fontsize=24)
         plt.savefig(outdir+"/sculptingQCD_%s.png"%(sculpt_vars[i]))
         plt.savefig(outdir+"/sculptingQCD_%s.pdf"%(sculpt_vars[i]))
-        plt.show()
+        #plt.show()
 
 
 # In[ ]:

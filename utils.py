@@ -88,7 +88,7 @@ def reshape_inputs(array, n_features):
 
 def train_val_test_split(array,train=0.8,val=0.1,test=0.1):
     n_events = array.shape[0]
-    return array[:int(n_events*train)], array[int(n_events*train):int(n_events*(train+val))], array[int(n_events*(train+val)):]
+    return array[:int(n_events*train)], array[int(n_events*train):int(n_events*(train+val))], array[int(n_events*(train+val)):int(n_events*(train+val+test))]
 
 def axis_settings(ax):
     import matplotlib.ticker as plticker
@@ -221,27 +221,43 @@ def plot_loss(loss_vals_training,loss_vals_validation,opath):
     plt.savefig(opath+"/loss.png")
     plt.savefig(opath+"/loss.pdf")
 
-def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, nbins,ilabel,plot=False):
+def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, nn_bins,ilabel,all_vs_QCD=False, plot=False):
     if testLabels.shape[1]==2: 
-        processes = ["Z'","QCD"]
+        processes = ["Z\'","QCD"]
+    elif testLabels.shape[1]==3: 
+        processes = ["proc1","proc2","QCD"]
     else: 
-        processes = ["Z'(bb)","Z'(cc)","Z'(qq)","QCD"]
+        processes = ["Z\'(bb)","Z\'(cc)","Z\'(qq)","QCD"]
     plt.clf()
     fig,ax = plt.subplots()
     hep.cms.label("Preliminary",rlabel=rlabel, data=False)
     ax = axis_settings(ax)
     response_l = [] 
-    bins=None
+    #bins=None
+
     for itruth in range(testLabels.shape[1]):
         response, bins, _ = plt.hist(testPredictions[testLabels[:,itruth]>0,ilabel],
-            bins=np.linspace(-0.01,1.001,nbins),
+            bins=nn_bins,
             label=processes[itruth],
             histtype='step',alpha=0.7,
-            density=True,
+            #density=True,
             lw=2.0,
         )
+        response /= np.sum(response)
         response_l.append(response)
-
+  
+    if all_vs_QCD:
+        qcd_idxs = np.where(testLabels.sum(axis=1)==0,True,False)
+        response, bins, _ = plt.hist(testPredictions[qcd_idxs,ilabel],
+            bins=nn_bins,
+            label=processes[-1],
+            histtype='step',alpha=0.7,
+            #density=True,
+            lw=2.0,
+        ) 
+        response /= np.sum(response)
+        response_l.append(response)
+ 
     if plot:
         ax.text(0.60,0.85,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
         ax.set_yscale('log')
@@ -253,28 +269,51 @@ def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, n
         plt.tight_layout()
         plt.savefig(opath+"/%s_response_class_%s.png"%(modelName,ilabel))
         plt.savefig(opath+"/%s_response_class_%s.pdf"%(modelName,ilabel))
+        return 
 
+    print(response_l, bins)
     return response_l, bins
-def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName):
+def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName, all_vs_QCD):
     os.system("mkdir -p "+opath)
     if testLabels.shape[1]==2:
         processes = ["Z'","QCD"]
+    elif testLabels.shape[1]==3: 
+        processes = ["proc1","proc2","QCD"]
     else:
         processes = ["Z'(bb)","Z'(cc)","Z'(qq)","QCD"]
     training_text = training_text.split(":")
-    for ilabel in range(testLabels.shape[1]):
-  
-        plot_reponse(testLabels, testPredictions, training_text, opath, modelName, 100, ilabel, True)
-        response_l, bins = plot_reponse(testLabels, testPredictions, training_text, opath, modelName, 10000, ilabel)
+
+        
+    n_processes = len(processes)
+    if all_vs_QCD:
+        n_processes -= 1 
+    #for ilabel in range(testLabels.shape[1]):
+    for ilabel in range(n_processes):
+        #nn_bins = np.concatenate((np.linspace(-0.001,0.0004,1000),np.linspace(0.0004,1.00,1000))) 
+        #nn_bins = np.concatenate((np.linspace(0.,0.0039,10000) , np.linspace(0.004,0.993,1000), np.linspace(0.994,1.0001,10000)))
+        nn_bins = np.concatenate((np.linspace(-0.001,0.04,10000) , np.linspace(0.041,0.95,10000), np.linspace(0.95001,1.001,10000)))
+        plot_reponse(testLabels, testPredictions, training_text, opath, modelName, np.linspace(-0.01,1.01,50), ilabel, all_vs_QCD=all_vs_QCD, plot=True)
+        response_l, bins = plot_reponse(testLabels, testPredictions, training_text, opath, modelName, nn_bins, ilabel,all_vs_QCD=all_vs_QCD, plot=False)
         tpr = None
         fpr_l = []
         fpr_label_l = []
         for itruth in range(testLabels.shape[1]):
+            #>>> bins = np.concatenate((np.linspace(0.00,0.004,10000), np.linspace(0.004,0.994, 1000), np.linspace(0.994,1.0, 10000)))
+            #>>> [np.sum(output[ib:]) for ib in range(len(bins),0,-1)]
+            print ([np.sum(response_l[itruth][ib:]) for ib in range(len(nn_bins),0,-1) ])
+            print(np.sum(response_l[itruth])) 
             if itruth == ilabel:
-                tpr = [ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(bins),0,-1) ]
-            else: 
-                fpr_l.append([ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(bins),0,-1) ])
+                tpr = [ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(nn_bins),0,-1) ]
+            else:
+ 
+                fpr_l.append([ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(nn_bins),0,-1) ])
                 fpr_label_l.append(processes[itruth])
+            #print(processes[itruth], response_l, bins)
+        print(tpr,fpr_l)
+        if all_vs_QCD:
+            fpr_l.append([ np.sum(response_l[-1][ib:])/np.sum(response_l[-1]) for ib in range(len(nn_bins),0,-1) ])
+            fpr_label_l.append("QCD")
+
         plt.clf()
         fig,ax = plt.subplots()
         hep.cms.label("Preliminary",rlabel=rlabel, data=False)
@@ -332,7 +371,9 @@ def plot_correlation(x,y,x_name,y_name,x_bins,y_bins,opath,name):
 def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath, modelName, score=""):
 
     ##This isn't enough bins???
-    QcdPredictionsPdf,edges = np.histogram(testQcdPredictions, bins=np.linspace(0.,1.,100), density=True)
+    bins = np.linspace(-0.001,1.001,1000000)
+    bins = np.concatenate((np.linspace(-0.001,0.0004,10000),np.linspace(0.0004,1.00,10000)))
+    QcdPredictionsPdf,edges = np.histogram(testQcdPredictions, bins=bins, density=True)
 
     #tot = 0
     #QcdPredictionsCdf = [] 
@@ -369,7 +410,7 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     for c,p in zip(cuts,pctls):
         ax.hist(testQcdPredictions[testQcdPredictions<edges[c]] if not invert else testQcdPredictions[testQcdPredictions>edges[c]],
                 label="$\mathrm{\epsilon_{QCD}}=$%.2f"%(p if not invert else 1-p),
-                bins=np.linspace(-0.01,1.001,100),
+                bins=bins,
                 histtype='step',
                 alpha=0.7,
                 density=True,

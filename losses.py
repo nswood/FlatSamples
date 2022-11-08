@@ -52,11 +52,19 @@ class DiscoCorr(nn.Module):
             disco = 1-disco
         return disco
 
-def disco_all_vs_QCD(output, target, mass, LAMBDA_ADV=10.):
+def disco_all_vs_QCD(output, target, mass, ignore, LAMBDA_ADV=10.):
     disco = DiscoCorr()
-    qcd_idxs = target[:,-1].to(torch.bool)
-    return all_vs_QCD(output,target) \
-        + LAMBDA_ADV*(disco(output[qcd_idxs,-1], mass[qcd_idxs])) \
+    qcd_idxs = torch.where(torch.sum(target,1)==0,True,False)
+    mass_loss = 0 
+    for iO in range(output.shape[1]):
+        mass_loss += disco(output[qcd_idxs,iO],mass[qcd_idxs])
+    '''
+    if output.shape[1] == 4: 
+        mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]) + disco(output[qcd_idxs,2], mass[qcd_idxs]) + disco(output[qcd_idxs,3], mass[qcd_idxs]))
+    elif output.shape[1] == 2:
+        mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]))
+    '''
+    return all_vs_QCD(output,target) + LAMBDA_ADV*mass_loss
 
 def disco(output, target, mass, bce_loss, LAMBDA_ADV=10.,):
     disco = DiscoCorr()
@@ -67,11 +75,15 @@ def disco(output, target, mass, bce_loss, LAMBDA_ADV=10.,):
         crossentropy = nn.CrossEntropyLoss()
     perf_loss = crossentropy(output,target)
     qcd_idxs = target[:,-1].to(torch.bool)
-
+    mass_loss = 0 
+    for iO in range(output.shape[1]):
+        mass_loss += LAMBDA_ADV*(disco(output[qcd_idxs,iO],mass[qcd_idxs]))
+    '''
     if output.shape[1] == 4: 
         mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]) + disco(output[qcd_idxs,2], mass[qcd_idxs]) + disco(output[qcd_idxs,3], mass[qcd_idxs]))
     elif output.shape[1] == 2:
         mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]))
+    '''
     return perf_loss + mass_loss
 
 
@@ -106,10 +118,10 @@ def adversarial():
 
 def all_vs_QCD(output, target):
 
-
-    mask_bb = (target[:,0] == 1) | (target[:,-1] == 1)
-    mask_cc = (target[:,1] == 1) | (target[:,-1] == 1)
-    mask_qq = (target[:,2] == 1) | (target[:,-1] == 1) 
+    qcd_idxs = torch.where(torch.sum(target,1)==0,True,False)
+    mask_bb = (target[:,0] == 1) | qcd_idxs
+    mask_cc = (target[:,1] == 1) | qcd_idxs
+    mask_qq = (target[:,2] == 1) | qcd_idxs
 
     loss = nn.functional.binary_cross_entropy(output[mask_bb], target[mask_bb]) + nn.functional.binary_cross_entropy(output[mask_cc], target[mask_cc]) + nn.functional.binary_cross_entropy(output[mask_qq], target[mask_qq]) 
     return loss

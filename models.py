@@ -2,14 +2,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import itertools
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Defines the interaction matrices
 
 class GraphNetv2(nn.Module):
-    def __init__(self, name, n_constituents, n_targets, params, n_vertices=0, params_v=0, params_e=0, event_branch=True, pv_branch=False,  vv_branch=False, hidden=20, De=20, Do=20, dropout=0.1, softmax=False, sigmoid=False, attention_flag=False):
+    def __init__(self, name, n_constituents, n_targets, params, n_vertices=0, params_v=0, params_e=0, event_branch=False, pv_branch=False,  vv_branch=False, hidden=20, De=20, Do=20, dropout=0.1, softmax=False, sigmoid=False, attention_flag=False, is_oldmodel=False):
         super(GraphNetv2, self).__init__()
         self.hidden = int(hidden)
         self.P = params
         self.name = name
+        self.is_oldmodel = is_oldmodel
         self.Nv = n_vertices		
         self.N = n_constituents
         self.S = params_v
@@ -31,59 +33,63 @@ class GraphNetv2(nn.Module):
         self.attention_flag = attention_flag 
     
         self.batchnorm = nn.BatchNorm1d(params)        
-        self.batchnormSV = nn.BatchNorm1d(params_v)        
-        self.batchnormE = nn.BatchNorm1d(params_e)        
+        self.batchnormSV = nn.BatchNorm1d(params_v)
+        if self.event_branch:        
+            self.batchnormE = nn.BatchNorm1d(params_e)        
 
-        self.fr1 = nn.Conv1d(2*self.P, 4*self.De, kernel_size=1).cuda()
-        self.fr2 = nn.Conv1d(4*self.De, 2*self.De, kernel_size=1).cuda()
-        self.fr3 = nn.Conv1d(2*self.De, self.De, kernel_size=1).cuda()
-        self.fr_batchnorm = nn.BatchNorm1d(self.De,  momentum=0.6).cuda()
+        self.fr1 = nn.Conv1d(2*self.P, 4*self.De, kernel_size=1)#.cuda()
+        self.fr2 = nn.Conv1d(4*self.De, 2*self.De, kernel_size=1)#.cuda()
+        self.fr3 = nn.Conv1d(2*self.De, self.De, kernel_size=1)#.cuda()
+        self.fr_batchnorm = nn.BatchNorm1d(self.De,  momentum=0.6)#.cuda()
 
         if self.event_branch:
-            self.fe1    = nn.Linear(self.E,80).cuda()
-            self.fe2    = nn.Linear(80,40).cuda()
-            self.fe3    = nn.Linear(40,int(self.De/2)).cuda()
+            self.fe1    = nn.Linear(self.E,80)#.cuda()
+            self.fe2    = nn.Linear(80,40)#.cuda()
+            self.fe3    = nn.Linear(40,int(self.De/2))#.cuda()
 
         if self.pv_branch:
             self.assign_matrices_SV()
-            self.fr1_pv = nn.Conv1d(self.S + self.P, self.hidden, kernel_size=1).cuda()
-            self.fr2_pv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1).cuda()
-            self.fr3_pv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1).cuda()
+            self.fr1_pv = nn.Conv1d(self.S + self.P, self.hidden, kernel_size=1)#.cuda()
+            self.fr2_pv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1)#.cuda()
+            self.fr3_pv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1)#.cuda()
 
         if self.vv_branch:
             self.assign_matrices_SVSV()
 
-            self.fr1_vv = nn.Conv1d(2 * self.S + self.Dr, self.hidden, kernel_size=1).cuda()
-            self.fr2_vv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1).cuda()
-            self.fr3_vv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1).cuda() 
+            self.fr1_vv = nn.Conv1d(2 * self.S + self.Dr, self.hidden, kernel_size=1)#.cuda()
+            self.fr2_vv = nn.Conv1d(self.hidden, int(self.hidden), kernel_size=1)#.cuda()
+            self.fr3_vv = nn.Conv1d(int(self.hidden), self.De, kernel_size=1)#.cuda() 
 
 
         if self.pv_branch:
-            self.fo1 = nn.Conv1d(self.P + (2 * self.De), 2*self.hidden, kernel_size=1).cuda()
-            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
-            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
+            self.fo1 = nn.Conv1d(self.P + (2 * self.De), 2*self.hidden, kernel_size=1)#.cuda()
+            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1)#.cuda()
+            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1)#.cuda()
 
         else:            
-            self.fo1 = nn.Conv1d(self.P + self.De, 2*self.hidden, kernel_size=1).cuda()
-            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1).cuda()
-            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1).cuda()
+            self.fo1 = nn.Conv1d(self.P + self.De, 2*self.hidden, kernel_size=1)#.cuda()
+            self.fo2 = nn.Conv1d(2*self.hidden, self.hidden, kernel_size=1)#.cuda()
+            self.fo3 = nn.Conv1d(self.hidden, self.Do, kernel_size=1)#.cuda()
         
         # Attention stuff
         if attention_flag: 
-            self.attention = nn.MultiheadAttention(embed_dim=Do, num_heads=int(Do/2), batch_first=True).cuda()
-            self.layer_norm_1 = nn.LayerNorm(Do).cuda()
-            self.layer_norm_2 = nn.LayerNorm(Do).cuda()
-            self.dropout_1 = nn.Dropout(dropout).cuda()
-            self.dropout_2 = nn.Dropout(dropout).cuda()
-            self.dropout_3 = nn.Dropout(dropout).cuda()
-            self.linear_1 = nn.Linear(Do, Do*2).cuda()
-            self.linear_2 = nn.Linear(Do*2, Do).cuda()
-            self.linear_3 = nn.Linear(Do*self.N, Do).cuda()
-            
-        self.fc_fixed = nn.Linear(self.Do, self.n_targets).cuda()
-        self.fc_fixed1 = nn.Linear(self.Do+int(self.De/2), 5*(self.n_targets))
-        self.fc_fixed2 = nn.Linear(5*self.n_targets, 3*self.n_targets)
-        self.fc_fixed3 = nn.Linear(3*self.n_targets, self.n_targets)
+            self.attention = nn.MultiheadAttention(embed_dim=Do, num_heads=int(Do/2), batch_first=True)#.cuda()
+            self.layer_norm_1 = nn.LayerNorm(Do)#.cuda()
+            self.layer_norm_2 = nn.LayerNorm(Do)#.cuda()
+            self.dropout_1 = nn.Dropout(dropout)#.cuda()
+            self.dropout_2 = nn.Dropout(dropout)#.cuda()
+            self.dropout_3 = nn.Dropout(dropout)#.cuda()
+            self.linear_1 = nn.Linear(Do, Do*2)#.cuda()
+            self.linear_2 = nn.Linear(Do*2, Do)#.cuda()
+            self.linear_3 = nn.Linear(Do*self.N, Do)#.cuda()
+        if self.is_oldmodel: 
+            self.fc_fixed = nn.Linear(self.Do, self.n_targets)#.cuda()
+        else:
+            Ninputs = self.Do
+            if self.event_branch: Ninputs+=int(self.De/2)
+            self.fc_fixed1 = nn.Linear(Ninputs, 5*(self.n_targets))
+            self.fc_fixed2 = nn.Linear(5*self.n_targets, 3*self.n_targets)
+            self.fc_fixed3 = nn.Linear(3*self.n_targets, self.n_targets)
 
 
             
@@ -94,8 +100,8 @@ class GraphNetv2(nn.Module):
         for i, (r, s) in enumerate(receiver_sender_list):
             self.Rr[r, i] = 1
             self.Rs[s, i] = 1
-        self.Rr = (self.Rr).cuda()
-        self.Rs = (self.Rs).cuda()
+        self.Rr = (self.Rr).to(device)
+        self.Rs = (self.Rs).to(device)
 
     def assign_matrices_SV(self):
         self.Rk = torch.zeros(self.N, self.Nt)
@@ -104,8 +110,8 @@ class GraphNetv2(nn.Module):
         for i, (k, v) in enumerate(receiver_sender_list):
             self.Rk[k, i] = 1
             self.Rv[v, i] = 1
-        self.Rk = (self.Rk).cuda()
-        self.Rv = (self.Rv).cuda()
+        self.Rk = (self.Rk).to(device)
+        self.Rv = (self.Rv).to(device)
 
     def assign_matrices_SVSV(self):
         self.Rl = torch.zeros(self.Nv, self.Ns)
@@ -114,8 +120,8 @@ class GraphNetv2(nn.Module):
         for i, (l, u) in enumerate(receiver_sender_list):
             self.Rl[l, i] = 1
             self.Ru[u, i] = 1
-        self.Rl = (self.Rl).cuda()
-        self.Ru = (self.Ru).cuda()
+        self.Rl = (self.Rl)#.cuda()
+        self.Ru = (self.Ru)#.cuda()
 
     def forward(self, x, y=None, e=None):
         ###PF Candidate - PF Candidate###
@@ -199,9 +205,12 @@ class GraphNetv2(nn.Module):
         del O
         
         ### Classification MLP ###
-        N = self.fc_fixed1(N)
-        N = self.fc_fixed2(N)
-        N = self.fc_fixed3(N)
+        if self.is_oldmodel: 
+            N = self.fc_fixed(N)
+        else:
+            N = self.fc_fixed1(N)
+            N = self.fc_fixed2(N)
+            N = self.fc_fixed3(N)
         #print("output",N.shape)
         
         if self.softmax:
@@ -328,15 +337,15 @@ class GraphNetnoSV(nn.Module):
         C = nn.functional.relu(self.fo1(C.view(-1, self.P + self.Dx + (self.De))))
         #print("C.shape",C.shape)
         C = nn.functional.relu(self.fo2(C))
-        print("C.shape",C.shape)
+        #print("C.shape",C.shape)
         O = nn.functional.relu(self.fo3(C).view(-1, self.N, self.Do))
-        print("O.shape",O.shape)
+        #print("O.shape",O.shape)
         del C
 
         
         #Taking the sum of over each particle/vertex
         N = torch.sum(O, dim=1)
-        print("N.shape",N.shape)
+        #print("N.shape",N.shape)
         del O
         
         ### Classification MLP ###
@@ -344,7 +353,7 @@ class GraphNetnoSV(nn.Module):
         N = self.fc_fixed1(N)
         N = self.fc_fixed2(N)
         N = self.fc_fixed3(N)
-        print("MLP: N.shape",N.shape)
+        #print("MLP: N.shape",N.shape)
         
         if self.softmax:
             N = nn.Softmax(dim=1)(N)
@@ -406,7 +415,8 @@ class DNN(nn.Module):
         x = self.activation(self.f3(x))
         x = self.b5(x)
         x = self.f5(x)
-        return(self.lastactivation(x))
+        return x
+        #return(self.lastactivation(x))
 
 
 import numpy as np
@@ -542,10 +552,12 @@ class ParticleNet(nn.Module):
                  use_fts_bn=True,
                  use_counts=True,
                  for_inference=False,
+                 sigmoid=False,
                  for_segmentation=False,
+                 event_branch=False,
                  **kwargs):
         super(ParticleNet, self).__init__(**kwargs)
-
+        self.event_branch = event_branch
         self.use_fts_bn = use_fts_bn
         if self.use_fts_bn:
             self.bn_fts = nn.BatchNorm1d(input_dims)
@@ -567,10 +579,29 @@ class ParticleNet(nn.Module):
         self.for_segmentation = for_segmentation
 
         fcs = []
+        if self.event_branch:
+            self.ec = nn.Sequential(
+                nn.BatchNorm1d(27),
+                nn.Linear(27,50),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(50,50),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(50,25),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(25,int(fc_params[0][0]/4)),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+            )                                     
+        
         for idx, layer_param in enumerate(fc_params):
             channels, drop_rate = layer_param
             if idx == 0:
                 in_chn = out_chn if self.use_fusion else conv_params[-1][1][-1]
+                if self.event_branch:
+                    in_chn = in_chn + int(in_chn/4)
             else:
                 in_chn = fc_params[idx - 1][0]
             if self.for_segmentation:
@@ -578,15 +609,18 @@ class ParticleNet(nn.Module):
                                          nn.BatchNorm1d(channels), nn.ReLU(), nn.Dropout(drop_rate)))
             else:
                 fcs.append(nn.Sequential(nn.Linear(in_chn, channels), nn.ReLU(), nn.Dropout(drop_rate)))
+
         if self.for_segmentation:
             fcs.append(nn.Conv1d(fc_params[-1][0], num_classes, kernel_size=1))
         else:
             fcs.append(nn.Linear(fc_params[-1][0], num_classes))
+
+            
         self.fc = nn.Sequential(*fcs)
 
         self.for_inference = for_inference
-
-    def forward(self, points, features, mask=None):
+        self.sigmoid = sigmoid 
+    def forward(self, points, features, mask=None, event_features=None):
 #         print('points:\n', points)
 #         print('features:\n', features)
         if mask is None:
@@ -620,9 +654,15 @@ class ParticleNet(nn.Module):
                 x = fts.sum(dim=-1) / counts  # divide by the real counts
             else:
                 x = fts.mean(dim=-1)
-
+        #print("self.event_branch",self.event_branch)
+        #print("event_features",event_features)
+        if self.event_branch:
+            e = self.ec(event_features)
+            x = torch.cat((x,e),dim=1)
         output = self.fc(x)
-        if self.for_inference:
+        if self.sigmoid:
+            output = torch.sigmoid(output)
+        elif self.for_inference:
             output = torch.softmax(output, dim=1)
         # print('output:\n', output)
         return output
@@ -640,6 +680,7 @@ class FeatureConv(nn.Module):
             )
 
     def forward(self, x):
+        #print(torch.where(~torch.isfinite(x),1,0).nonzero())
         return self.conv(x)
 
 
@@ -658,9 +699,12 @@ class ParticleNetTagger(nn.Module):
                  pf_input_dropout=None,
                  sv_input_dropout=None,
                  for_inference=False,
+                 sigmoid=False,
+                 event_branch=False,
                  **kwargs):
         super(ParticleNetTagger, self).__init__(**kwargs)
         self.name = name
+        self.event_branch = event_branch
         self.pf_input_dropout = nn.Dropout(pf_input_dropout) if pf_input_dropout else None
         self.sv_input_dropout = nn.Dropout(sv_input_dropout) if sv_input_dropout else None
         self.pf_conv = FeatureConv(pf_features_dims, 32)
@@ -672,9 +716,12 @@ class ParticleNetTagger(nn.Module):
                               use_fusion=use_fusion,
                               use_fts_bn=use_fts_bn,
                               use_counts=use_counts,
-                              for_inference=for_inference)
+                              for_inference=for_inference,
+                              sigmoid=sigmoid,
+                              event_branch=event_branch,
+        )
 
-    def forward(self, pf_points, pf_features, pf_mask, sv_points, sv_features, sv_mask):
+    def forward(self, pf_points, pf_features, pf_mask, sv_points, sv_features, sv_mask, event_features=None):
         if self.pf_input_dropout:
             pf_mask = (self.pf_input_dropout(pf_mask) != 0).float()
             pf_points *= pf_mask
@@ -683,8 +730,22 @@ class ParticleNetTagger(nn.Module):
             sv_mask = (self.sv_input_dropout(sv_mask) != 0).float()
             sv_points *= sv_mask
             sv_features *= sv_mask
-
+        #print("pf_points/sv_points",pf_points.shape,sv_points.shape) 
+        #print("pf_features/sv_features",pf_features.shape, sv_features.shape)
+        #print("pf_mask/sv_mask",pf_mask.shape, sv_mask.shape)
         points = torch.cat((pf_points, sv_points), dim=2)
+        #print("self.pf_conv(pf_features * pf_mask)",self.pf_conv(pf_features * pf_mask).shape)
+        #print("self.sv_conv(sv_features * sv_mask)",self.sv_conv(sv_features * sv_mask).shape)
+        #print("self.pf_conv(pf_features * pf_mask) * pf_mask ",(self.pf_conv(pf_features * pf_mask) * pf_mask).shape)
+        #print("self.sv_conv(sv_features * sv_mask) * sv_mask ",(self.sv_conv(sv_features * sv_mask) * sv_mask).shape)
+        
+        #print("pf_features",pf_features.shape,"\npf_mask",pf_mask.shape,"\nsv_features",sv_features.shape,"\nsv_mask",sv_mask.shape,)
         features = torch.cat((self.pf_conv(pf_features * pf_mask) * pf_mask, self.sv_conv(sv_features * sv_mask) * sv_mask), dim=2)
+        #print("features",features.shape)
+        #features = torch.cat((self.pf_conv(pf_features * pf_mask), self.sv_conv(sv_features * sv_mask)), dim=2)
         mask = torch.cat((pf_mask, sv_mask), dim=2)
-        return self.pn(points, features, mask)
+        #print("mask",mask.shape)
+        #print("points",points.shape)
+        #print("features",features.shape)
+        #print("mask",mask.shape)
+        return self.pn(points, features, mask, event_features)
