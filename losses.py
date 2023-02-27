@@ -52,7 +52,7 @@ class DiscoCorr(nn.Module):
             disco = 1-disco
         return disco
 
-def disco_all_vs_QCD(output, target, mass, ignore, LAMBDA_ADV=10.):
+def disco_all_vs_QCD(output, target, mass, LAMBDA_ADV=10.):
     disco = DiscoCorr()
     qcd_idxs = torch.where(torch.sum(target,1)==0,True,False)
     mass_loss = 0 
@@ -66,13 +66,10 @@ def disco_all_vs_QCD(output, target, mass, ignore, LAMBDA_ADV=10.):
     '''
     return all_vs_QCD(output,target) + LAMBDA_ADV*mass_loss
 
-def disco(output, target, mass, bce_loss, LAMBDA_ADV=10.,):
+def disco(output, target, mass, LAMBDA_ADV=10.,):
     disco = DiscoCorr()
 
-    if bce_loss: 
-        crossentropy = nn.BCELoss()
-    else:
-        crossentropy = nn.CrossEntropyLoss()
+    crossentropy = nn.BCELoss()
     perf_loss = crossentropy(output,target)
     qcd_idxs = target[:,-1].to(torch.bool)
     mass_loss = 0 

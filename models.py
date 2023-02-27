@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import itertools
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Defines the interaction matrices
 
 class GraphNetv2(nn.Module):
@@ -415,8 +416,8 @@ class DNN(nn.Module):
         x = self.activation(self.f3(x))
         x = self.b5(x)
         x = self.f5(x)
-        return x
-        #return(self.lastactivation(x))
+        #return x
+        return(self.lastactivation(x))
 
 
 import numpy as np

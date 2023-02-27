@@ -219,13 +219,12 @@ def plot_loss(loss_vals_training,loss_vals_validation,opath):
     ax.legend(loc="upper right",prop=legend_font)
     plt.tight_layout()
     plt.savefig(opath+"/loss.png")
-    plt.savefig(opath+"/loss.pdf")
 
-def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, nn_bins,ilabel,all_vs_QCD=False, plot=False):
+def plot_response(testLabels, testPredictions, training_text, opath, modelName, nn_bins,ilabel,all_vs_QCD=False, plot=False):
     if testLabels.shape[1]==2: 
         processes = ["Z\'","QCD"]
     elif testLabels.shape[1]==3: 
-        processes = ["proc1","proc2","QCD"]
+        processes = ["Z'(bb) vs QCD","Z'(cc) vs QCD","Z'(qq) vs QCD"]
     else: 
         processes = ["Z\'(bb)","Z\'(cc)","Z\'(qq)","QCD"]
     plt.clf()
@@ -273,27 +272,27 @@ def plot_reponse(testLabels, testPredictions, training_text, opath, modelName, n
 
     print(response_l, bins)
     return response_l, bins
-def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName, all_vs_QCD):
+def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName, all_vs_QCD, QCD_only):
     os.system("mkdir -p "+opath)
     if testLabels.shape[1]==2:
         processes = ["Z'","QCD"]
     elif testLabels.shape[1]==3: 
-        processes = ["proc1","proc2","QCD"]
+        processes = ["Z'(bb) vs QCD","Z'(cc) vs QCD","Z'(qq) vs QCD"]
     else:
         processes = ["Z'(bb)","Z'(cc)","Z'(qq)","QCD"]
     training_text = training_text.split(":")
 
         
-    n_processes = len(processes)
-    if all_vs_QCD:
-        n_processes -= 1 
+    n_processes = testLabels.shape[1]
+    #if all_vs_QCD:
+    #    n_processes -= 1 
     #for ilabel in range(testLabels.shape[1]):
     for ilabel in range(n_processes):
-        #nn_bins = np.concatenate((np.linspace(-0.001,0.0004,1000),np.linspace(0.0004,1.00,1000))) 
+        nn_bins = np.linspace(-0.001,1.001,1000) 
         #nn_bins = np.concatenate((np.linspace(0.,0.0039,10000) , np.linspace(0.004,0.993,1000), np.linspace(0.994,1.0001,10000)))
-        nn_bins = np.concatenate((np.linspace(-0.001,0.04,10000) , np.linspace(0.041,0.95,10000), np.linspace(0.95001,1.001,10000)))
-        plot_reponse(testLabels, testPredictions, training_text, opath, modelName, np.linspace(-0.01,1.01,50), ilabel, all_vs_QCD=all_vs_QCD, plot=True)
-        response_l, bins = plot_reponse(testLabels, testPredictions, training_text, opath, modelName, nn_bins, ilabel,all_vs_QCD=all_vs_QCD, plot=False)
+        #nn_bins = np.concatenate((np.linspace(-0.001,0.04,10000) , np.linspace(0.041,0.95,10000), np.linspace(0.95001,1.001,10000)))
+        plot_response(testLabels, testPredictions, training_text, opath, modelName, np.linspace(-0.01,1.01,50), ilabel, all_vs_QCD=all_vs_QCD, plot=True)
+        response_l, bins = plot_response(testLabels, testPredictions, training_text, opath, modelName, nn_bins, ilabel, all_vs_QCD=all_vs_QCD, plot=False)
         tpr = None
         fpr_l = []
         fpr_label_l = []
@@ -301,7 +300,8 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
             #>>> bins = np.concatenate((np.linspace(0.00,0.004,10000), np.linspace(0.004,0.994, 1000), np.linspace(0.994,1.0, 10000)))
             #>>> [np.sum(output[ib:]) for ib in range(len(bins),0,-1)]
             print ([np.sum(response_l[itruth][ib:]) for ib in range(len(nn_bins),0,-1) ])
-            print(np.sum(response_l[itruth])) 
+            print(np.sum(response_l[itruth]))
+            #if QCD_only and "QCD" not in processes[itruth]: continue 
             if itruth == ilabel:
                 tpr = [ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(nn_bins),0,-1) ]
             else:
@@ -321,6 +321,7 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
         for i in range(len(fpr_l)):
             fpr = np.round_(fpr_l[i],decimals=4)
             tpr = np.round_(tpr,decimals=4)
+            if QCD_only and "QCD" not in fpr_label_l[i]: continue
             ax.plot(fpr_l[i], tpr, 
                     label = "{process} vs {class_name} (auc={auc:.2f})".format(process=fpr_label_l[i],class_name=processes[ilabel],auc=auc(fpr, tpr)),
                     lw=2.0,
@@ -335,15 +336,15 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
         ax.text(0.63,0.2,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
         ax.legend(loc="lower right",prop=legend_font)
         plt.tight_layout()
-        plt.savefig(opath+"/%s_roc_class_%s.png"%(modelName,ilabel))
-        plt.savefig(opath+"/%s_roc_class_%s.pdf"%(modelName,ilabel))
+        plt.savefig(opath+"/%s_roc_class_%s%s.png"%(modelName,ilabel,"QCD-only" if QCD_only else ""))
+        plt.savefig(opath+"/%s_roc_class_%s%s.pdf"%(modelName,ilabel,"QCD-only" if QCD_only else "" ))
 
         ax.set_xlim(0.001,1.0)
         ax.set_ylim(0.001,1.0) 
         ax.set_xscale('log')
         ax.set_yscale('log')
-        plt.savefig(opath+"/%s_roc_class_%s_log.png"%(modelName,ilabel))
-        plt.savefig(opath+"/%s_roc_class_%s_log.pdf"%(modelName,ilabel))
+        plt.savefig(opath+"/%s_roc_class_%s_log%s.png"%(modelName,ilabel,"QCD-only" if QCD_only else ""))
+        plt.savefig(opath+"/%s_roc_class_%s_log%s.pdf"%(modelName,ilabel,"QCD-only" if QCD_only else "" ))
 
     return 
 
@@ -368,11 +369,11 @@ def plot_correlation(x,y,x_name,y_name,x_bins,y_bins,opath,name):
     plt.savefig(opath+"/2dcorr_%s.png"%(name))
     plt.savefig(opath+"/2dcorr_%s.pdf"%(name))
     
-def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath, modelName, score=""):
+def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath, modelName, inverted=False,score=""):
 
     ##This isn't enough bins???
-    bins = np.linspace(-0.001,1.001,1000000)
-    bins = np.concatenate((np.linspace(-0.001,0.0004,10000),np.linspace(0.0004,1.00,10000)))
+    bins = np.linspace(-0.001,1.001,10000)
+    #bins = np.concatenate((np.linspace(-0.001,0.0004,10000),np.linspace(0.0004,1.00,10000)))
     QcdPredictionsPdf,edges = np.histogram(testQcdPredictions, bins=bins, density=True)
 
     #tot = 0
@@ -383,9 +384,9 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     #    QcdPredictionsCdf.append(tot)
 
     pctls = [0.05,0.10,0.25,0.75,1.00]
-    invert=False
     print("before",QcdPredictionsPdf)
-    if testQcdPredictions.mean()<0.5:
+    #if testQcdPredictions.mean()<0.5:
+    if inverted:
         #QcdPredictionsPdf = QcdPredictionsPdf[::-1]
         invert=True
         #pctls = [
@@ -408,8 +409,8 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     hep.cms.label("Preliminary",rlabel=rlabel, data=False)
     ax = axis_settings(ax)
     for c,p in zip(cuts,pctls):
-        ax.hist(testQcdPredictions[testQcdPredictions<edges[c]] if not invert else testQcdPredictions[testQcdPredictions>edges[c]],
-                label="$\mathrm{\epsilon_{QCD}}=$%.2f"%(p if not invert else 1-p),
+        ax.hist(testQcdPredictions[testQcdPredictions<edges[c]] if not inverted else testQcdPredictions[testQcdPredictions>edges[c]],
+                label="$\mathrm{\epsilon_{QCD}}=$%.2f"%(p if not inverted else 1-p),
                 bins=bins,
                 histtype='step',
                 alpha=0.7,
@@ -435,11 +436,11 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
 
         for c,p in zip(cuts,pctls):
             #print("QCD < %.2f"%edges[c], testQcdPredictions[testQcdPredictions<edges[c]])
-            KinematicsPassingCut = testQcdKinematics[testQcdPredictions<edges[c],_singleton_labels.index(label)] if not invert else testQcdKinematics[testQcdPredictions>edges[c],_singleton_labels.index(label)]
+            KinematicsPassingCut = testQcdKinematics[testQcdPredictions<edges[c],_singleton_labels.index(label)] if not inverted else testQcdKinematics[testQcdPredictions>edges[c],_singleton_labels.index(label)]
             cut_hist,_ = np.histogram(KinematicsPassingCut,bins=_titles[label]["bins"],)
             jsd = scipy.spatial.distance.jensenshannon(inclusive_hist,cut_hist)
             ax.hist(KinematicsPassingCut, 
-                    label="$\mathrm{\epsilon_{QCD}}=$%.2f, %.2f"%((p if not invert else 1-p),0. if jsd == np.nan else jsd), 
+                    label="$\mathrm{\epsilon_{QCD}}=$%.2f, %.2f"%((p if not inverted else 1-p),0. if jsd == np.nan else jsd), 
                     bins=_titles[label]["bins"],
                     histtype='step',
                     alpha=0.7,

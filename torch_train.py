@@ -32,7 +32,6 @@ import argparse
 parser = argparse.ArgumentParser(description='Test.')                                 
 parser.add_argument('--loss', action='store', type=str, help='Name of loss to use.') 
 parser.add_argument('--model', action='store', type=str, help='Name of model to use.') 
-parser.add_argument('--bce_disco', action='store', type=str, default=None, help='use BCE with disco.') 
 parser.add_argument('--opath', action='store', type=str, help='Path to output files.') 
 parser.add_argument('--mpath', action='store', type=str, help='Path to model for inference+plotting.') 
 parser.add_argument('--De', action='store', type=int,default=20, help='Output dimension.') 
@@ -48,12 +47,14 @@ parser.add_argument('--plot_features', action='store_true', default=False, help=
 parser.add_argument('--run_captum', action='store_true', default=False, help='Flat to run attribution test') 
 parser.add_argument('--test_run', action='store_true', default=False, help='Short run for testing.') 
 parser.add_argument('--make_PN', action='store_true', default=False, help='Flag to make PN plots.') 
+parser.add_argument('--make_N2', action='store_true', default=False, help='Flag to make N2 plots.') 
 parser.add_argument('--is_binary', action='store_true', default=False, help='Train only Z\'(inclusive) vs QCD.') 
 parser.add_argument('--is_peaky', action='store_true', default=False, help='Train on peaky Z\'.') 
 parser.add_argument('--no_heavy_flavorQCD', action='store_true', default=False, help='Exclude heavy flavor QCD.') 
 parser.add_argument('--one_hot_encode_pdgId', action='store_true', default=False, help='One-hot-encode particle pdgId.') 
 parser.add_argument('--SV', action='store_true', default=False, help='Run with SVs.') 
 parser.add_argument('--event', action='store_true', default=False, help='Run with event info.') 
+parser.add_argument('--PN_v1', action='store_true', default=False, help='Run with bigger PN.') 
 
 args = parser.parse_args()
 
@@ -61,15 +62,14 @@ assert(args.model)
 if not args.make_PN:
     assert(args.loss)
 
-if "disco" in args.loss and args.bce_disco is None:
-    raise ValueError("Need BCE or categorical for disco")
-
+if not args.is_binary and args.make_N2:
+    raise ValueError("need binary for N2 plots")
 if args.opath:
     os.system("mkdir -p "+args.opath)
 
 
 srcDir = '/work/tier3/jkrupa/FlatSamples/data//30Oct22-MiniAODv2/30Oct22/zpr_fj_msd/2017/' 
-srcDir = '/work/tier3/jkrupa/FlatSamples'
+srcDir = '/work/tier3/jkrupa/FlatSamples/data/'
 n_particle_features = 6
 n_particles = args.nparts
 n_vertex_features = 13
@@ -81,7 +81,7 @@ print("Running with %i particle features, %i particles, %i vertex features, %i v
 print("Loss: ", args.loss)
 
 _sigmoid=False
-_softmax=False
+_softmax=True
 if args.loss == 'bce':
     loss = nn.BCELoss()
 elif args.loss == 'categorical':
@@ -110,11 +110,9 @@ if args.mini_dataset:
     n_events=5000000
 else:
     n_events=None
-particleData = utils.reshape_inputs(data['p_features'], n_particle_features)
-vertexData   = utils.reshape_inputs(data['SV_features'], n_vertex_features)
 
-#particleData  = np.array(data['p_features'][:n_events]) #utils.reshape_inputs(data['p_features'], n_particle_features)
-#vertexData    = np.array(data['SV_features'][:n_events]) #utils.reshape_inputs(data['SV_features'], n_vertex_features)
+particleData  = np.array(data['p_features'][:n_events]) #utils.reshape_inputs(data['p_features'], n_particle_features)
+vertexData    = np.array(data['SV_features'][:n_events]) #utils.reshape_inputs(data['SV_features'], n_vertex_features)
 singletonData = np.array(data['singletons'][:n_events])
 singletonFeatureData = np.array(data['singleton_features'][:n_events])
 labels        = singletonData[:,-3:]
@@ -313,7 +311,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             if args.loss == 'jsd':
                 l = loss(output, batchLabels, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
             elif 'disco' in args.loss:
-                l = loss(output, batchLabels, mass, args.bce_disco, LAMBDA_ADV=args.LAMBDA_ADV,)
+                l = loss(output, batchLabels, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
             else:
                 l = loss(output, batchLabels)
 
@@ -364,7 +362,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             if args.loss == 'jsd':
                 l_val  = loss(output, valLabels, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
             elif 'disco' in args.loss:
-                l_val = loss(output, valLabels, mass, args.bce_disco, LAMBDA_ADV=args.LAMBDA_ADV,)
+                l_val = loss(output, valLabels, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
             else: 
                 l_val = loss(output, valLabels)
             loss_validation.append(l_val.item())
@@ -420,24 +418,33 @@ def eval_classifier(classifier, training_text, modelName, outdir,
         batch_size = 1000
  
         ##### ParticleNet
-        if pfMaskTestingData is not None and svMaskTestingData is not None: 
-            for istep, (subtensor,subtensorSV,subtensorpfMask,subtensorsvMask) in enumerate(zip(np.array_split(particleTestingData,batch_size),np.array_split(svTestingData,batch_size),np.array_split(pfMaskTestingData,batch_size),np.array_split(svMaskTestingData,batch_size),)):
-                testInputs = torch.FloatTensor(particleTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                testInputsSV = torch.FloatTensor(svTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                testpfMask = torch.FloatTensor(pfMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                testsvMask = torch.FloatTensor(svMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                testpfPoints = testInputs[:,1:3,:]
-                testsvPoints = testInputsSV[:,-2:,:]
-
-                end_idx=min((istep+1)*batch_size,len(testInputs))
-
-                if eventTestingData is not None:
-                    testInputsE = torch.FloatTensor(eventTestingData[istep*batch_size:end_idx]).to(device)
-                else:
-                    testInputsE=None
-                predictions.append(classifier(testpfPoints,testInputs,testpfMask,testsvPoints,testInputsSV,testsvMask,testInputsE).cpu().detach().numpy())
+        if "PN" in classifier.name:
+            for istep, (subtensor,subtensorSV,subtensorpfMask,subtensorsvMask,subtensorE) in enumerate(zip(np.array_split(particleTestingData,batch_size),np.array_split(svTestingData,batch_size),np.array_split(pfMaskTestingData,batch_size),np.array_split(svMaskTestingData,batch_size),np.array_split(eventTestingData,batch_size))):
+            #for istep in tqdm(range(int(len(particleTestingData)/batch_size))): 
+                #testInputs = torch.FloatTensor(particleTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
+                #testInputsSV = torch.FloatTensor(svTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
+                #testpfMask = torch.FloatTensor(pfMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
+                #testsvMask = torch.FloatTensor(svMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
+                testpfPoints = subtensor[:,1:3,:]
+                testsvPoints = subtensorSV[:,-2:,:]
+      
+                #if eventTestingData is not None:
+                #    testInputsE = torch.FloatTensor(eventTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
+                
+                #else:
+                #    testInputsE=None
+                #print("here",testInputsE.shape)
+                #predictions.append(classifier(testpfPoints,testInputs,testpfMask,testsvPoints,testInputsSV,testsvMask,testInputsE).cpu().detach().numpy())    
+                testpfPoints = torch.FloatTensor(testpfPoints).to(device)
+                subtensor = torch.FloatTensor(subtensor).to(device)
+                subtensorpfMask = torch.FloatTensor(subtensorpfMask).to(device)
+                testsvPoints = torch.FloatTensor(testsvPoints).to(device)
+                subtensorSV = torch.FloatTensor(subtensorSV).to(device)
+                subtensorsvMask = torch.FloatTensor(subtensorsvMask).to(device)
+                subtensorE = torch.FloatTensor(subtensorE).to(device)
+                predictions.append(classifier(testpfPoints,subtensor,subtensorpfMask,testsvPoints,subtensorSV,subtensorsvMask,subtensorE).cpu().detach().numpy())
                 if (args.test_run): break
-        ##### PF+SV+event
+        ##### IN PF+SV+event
         elif svTestingData is not None and eventTestingData is not None:
             for subtensor,subtensorSV,subtensorE in zip(np.array_split(particleTestingData,1000),np.array_split(svTestingData,1000),np.array_split(eventTestingData,1000)):
 
@@ -466,49 +473,66 @@ def eval_classifier(classifier, training_text, modelName, outdir,
                 #if (args.test_run): break 
     predictions = [item for sublist in predictions for item in sublist]
     predictions = np.array(predictions)#.astype(np.float32)
-    print(np.array(predictions).astype(np.float32))
-    print(np.array(predictions).astype(np.float16))
     os.system("mkdir -p "+outdir)
     np.save(outdir+"/predictions.npy", predictions)
     if 'all_vs_QCD' in args.loss:
         qcd_idxs = np.where(testingLabels.sum(axis=1)==0,True,False)
-        utils.plot_correlation(predictions[qcd_idxs,0],testingSingletons[qcd_idxs,0], "bb vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "bb_vs_mass")
-        utils.plot_correlation(predictions[qcd_idxs,1],testingSingletons[qcd_idxs,0], "cc vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "cc_vs_mass")
-        utils.plot_correlation(predictions[qcd_idxs,2],testingSingletons[qcd_idxs,0], "qq vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "qq_vs_mass")
     else:
         qcd_idxs = testingLabels[:,-1].astype(bool)
         utils.plot_correlation(predictions[qcd_idxs,-1],testingSingletons[qcd_idxs,0], "QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "qcd_vs_mass")
-        utils.sculpting_curves(predictions[qcd_idxs,-1], testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="QCD")
-    utils.plot_roc_curve(testingLabels, predictions, training_text, outdir, modelName, all_vs_QCD="all_vs_QCD" in args.loss)
+        utils.sculpting_curves(predictions[qcd_idxs,-1], testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="QCD", inverted=False)
+
+    utils.plot_roc_curve(testingLabels, predictions, training_text, outdir, modelName, all_vs_QCD="all_vs_QCD" in args.loss, QCD_only=True)
 
     if args.is_binary:
         
         prob_2prong = predictions[qcd_idxs,0]
-        utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="Z\'")
+        utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="Z\'",inverted=True)
 
     else:
+        utils.plot_correlation(predictions[qcd_idxs,0],testingSingletons[qcd_idxs,0], "bb vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "bb_vs_mass")
+        utils.plot_correlation(predictions[qcd_idxs,1],testingSingletons[qcd_idxs,0], "cc vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "cc_vs_mass")
+        utils.plot_correlation(predictions[qcd_idxs,2],testingSingletons[qcd_idxs,0], "qq vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "qq_vs_mass")
         prob_bb = predictions[qcd_idxs,0]
-        utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb")
+        utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="bb",inverted=True)
         prob_cc = predictions[qcd_idxs,1]
-        utils.sculpting_curves(prob_cc, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="cc")
+        utils.sculpting_curves(prob_cc, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="cc",inverted=True)
         prob_qq = predictions[qcd_idxs,2]
-        utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="qq")
+        utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="qq",inverted=True)
 
 if args.make_PN:
     predictions = singletonData[:,[utils._singleton_labels.index("zpr_fj_particleNetMD_Xbb"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xcc"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xqq"), utils._singleton_labels.index("zpr_fj_particleNetMD_QCD")]]
-    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "particleNet-MD")
+    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "particleNet-MD", all_vs_QCD=False,QCD_only=True)
     
     qcd_idxs = labels[:,-1].astype(bool)
     prob_bb = predictions[qcd_idxs,0]
-    utils.sculpting_curves(prob_bb, singletonData[qcd_idxs,:],"ParticleNet-MD:bb score", args.opath, "particleNet-MD")
+    utils.sculpting_curves(prob_bb, singletonData[qcd_idxs,:],"ParticleNet-MD:bb score", args.opath, "particleNet-MD-bb",inverted=True)
     prob_cc = predictions[qcd_idxs,1]
-    utils.sculpting_curves(prob_cc, singletonData[qcd_idxs,:], "ParticleNet-MD:cc score", args.opath, "particleNet-MD")
+    utils.sculpting_curves(prob_cc, singletonData[qcd_idxs,:], "ParticleNet-MD:cc score", args.opath, "particleNet-MD-cc",inverted=True)
     prob_qq = predictions[qcd_idxs,2]
-    utils.sculpting_curves(prob_qq, singletonData[qcd_idxs,:], "ParticleNet-MD:qq score", args.opath, "particleNet-MD")
+    utils.sculpting_curves(prob_qq, singletonData[qcd_idxs,:], "ParticleNet-MD:qq score", args.opath, "particleNet-MD-qq",inverted=True)
     prob_QCD = predictions[qcd_idxs,3]
-    utils.sculpting_curves(prob_QCD, singletonData[qcd_idxs,:], "ParticleNet-MD:QCD score", args.opath, "particleNet-MD")
+    utils.sculpting_curves(prob_QCD, singletonData[qcd_idxs,:], "ParticleNet-MD:QCD score", args.opath, "particleNet-MD-QCD",inverted=False)
+    labels = np.concatenate((np.expand_dims(np.sum(labels[:,:-1],axis=1),-1),np.expand_dims(labels[:,-1],-1)),axis=1)
+    predictions = np.concatenate((np.expand_dims(np.sum(predictions[:,:-1],axis=1),-1),np.expand_dims(predictions[:,-1],-1)),axis=1)
+    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "particleNet-MD-2prong", all_vs_QCD=False,)
+
     sys.exit(1)
 
+if args.make_N2:
+    predictions = singletonData[:,[utils._singleton_labels.index("zpr_fj_n2b1")]]
+    predictions = (predictions - np.min(predictions)) / ( np.max(predictions) - np.min(predictions))
+    print(predictions.shape) 
+    predictions = np.concatenate((1-predictions,predictions),axis=1)
+    print(predictions.shape) 
+    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "N2", all_vs_QCD=False,)
+    qcd_idxs = labels[:,-1].astype(bool)
+    prob_QCD = predictions[qcd_idxs,0]
+    utils.sculpting_curves(prob_QCD, singletonData[qcd_idxs,:],"N2:QCD score", args.opath, "N2",inverted=True)
+    prob_N2 = predictions[qcd_idxs,1]
+    utils.sculpting_curves(prob_N2, singletonData[qcd_idxs,:],"N2:2prong score", args.opath, "N2",inverted=False)
+    
+    sys.exit(1)
 maskpfTrain = None
 maskpfVal = None
 maskpfTest = None
@@ -522,7 +546,10 @@ if args.model =='DNN':
 elif args.model=='PN': 
 
     #model = models.ParticleNetTagger("PN",n_particles,n_vertex,labelsTrain.shape[1])
-    model = models.ParticleNetTagger("PN",particleDataTrain.shape[2],vertexDataTrain.shape[2],labelsTrain.shape[1],for_inference=_softmax, fc_params=[(128,0.1)],event_branch=args.event,sigmoid=_sigmoid)
+    if args.PN_v1:
+        model = models.ParticleNetTagger("PN",particleDataTrain.shape[2],vertexDataTrain.shape[2],labelsTrain.shape[1],for_inference=_softmax, fc_params=[(128,0.1),(64,0.1)],conv_params=[(16, (64, 64, 64)),(16, (128, 128, 128)),],event_branch=args.event,sigmoid=_sigmoid)
+    else: 
+        model = models.ParticleNetTagger("PN",particleDataTrain.shape[2],vertexDataTrain.shape[2],labelsTrain.shape[1],for_inference=_softmax,event_branch=args.event,sigmoid=_sigmoid)
     # Batch,Nparts,Nfeatures
     #maskpfTrain = np.zeros((particleDataTrain.shape[0],particleDataTrain.shape[1]),dtype=bool)
     maskpfTrain = np.where(particleDataTrain[:,:,0]>0.,1., 0.)
@@ -560,12 +587,12 @@ elif args.model=='PN':
 
 elif args.model=='IN_SV_event':
     model = models.GraphNetv2("IN_SV_event",n_particles,labelsTrain.shape[1],6,n_vertices=5,params_v=13,params_e=27,pv_branch=True,event_branch=True, hidden=args.hidden, De=args.De, Do=args.Do,sigmoid=_sigmoid,softmax=_softmax)
-    #particleDataTrain = np.swapaxes(particleDataTrain,1,2)
-    #particleDataVal = np.swapaxes(particleDataVal,1,2)
-    #particleDataTest = np.swapaxes(particleDataTest,1,2)
-    #vertexDataTrain = np.swapaxes(vertexDataTrain,1,2)
-    #vertexDataVal = np.swapaxes(vertexDataVal,1,2)
-    #vertexDataTest = np.swapaxes(vertexDataTest,1,2)
+    particleDataTrain = np.swapaxes(particleDataTrain,1,2)
+    particleDataVal = np.swapaxes(particleDataVal,1,2)
+    particleDataTest = np.swapaxes(particleDataTest,1,2)
+    vertexDataTrain = np.swapaxes(vertexDataTrain,1,2)
+    vertexDataVal = np.swapaxes(vertexDataVal,1,2)
+    vertexDataTest = np.swapaxes(vertexDataTest,1,2)
     #singletonFeatureDataTrain = np.swapaxes(singletonFeatureDataTrain,1,2)
     #singletonFeatureDataVal = np.swapaxes(singletonFeatureDataVal,1,2)
     #singletonFeatureDataTest = np.swapaxes(singletonFeatureDataTest,1,2)
