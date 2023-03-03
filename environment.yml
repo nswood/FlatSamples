@@ -1,4 +1,4 @@
-name: IN
+name: flat-samples
 channels:
   - pytorch
   - conda-forge
@@ -210,4 +210,4 @@ dependencies:
     - widgetsnbextension==3.6.1
     - wrapt==1.14.1
     - yarl==1.8.1
-prefix: /work/tier3/jkrupa/FlatSamples/mambaforge/envs/IN
+prefix: /n/home07/jkrupa/zprlegacy/FlatSamples/
