@@ -8,11 +8,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class zpr_loader(Dataset):
-    def __init__(self, raw_paths, qcd_only=True, transform=None):
+    def __init__(self, raw_paths, qcd_only=True, transform=None,maxfiles=None):
         #super(zpr_loader, self).__init__(raw_paths)
         #self.strides = [0]
         #self.ratio = ratio
-        self.raw_paths = glob.glob(raw_paths+'*_0_*h5')
+        self.raw_paths = sorted(glob.glob(raw_paths+'*h5'))[:maxfiles]
         self.fill_data()
 
         #self.calculate_offsets()
@@ -29,7 +29,7 @@ class zpr_loader(Dataset):
             with h5py.File(path, 'r') as f:
 
                  tmp_features = f['features'][()].astype(np.float32)
-                 tmp_jetfeatures = f['features'][()].astype(np.float32)
+                 tmp_jetfeatures = f['jet_features'][()].astype(np.float32)
                  tmp_truthlabel = f['jet_truthlabel'][()]
                  if fi == 0:
                      self.data_features = tmp_features
@@ -40,10 +40,9 @@ class zpr_loader(Dataset):
                      self.data_jetfeatures = np.concatenate((self.data_jetfeatures,tmp_jetfeatures))
                      self.data_truthlabel = np.concatenate((self.data_truthlabel,tmp_truthlabel))
 
-                 if self.data_truthlabel.shape[0] > 10000: break
-        self.data_features = torch.cuda.FloatTensor(self.data_features)
-        self.data_jetfeatures = torch.cuda.FloatTensor(self.data_jetfeatures)
-        self.data_truthlabel = torch.cuda.FloatTensor(self.data_truthlabel)
+        #self.data_features = torch.cuda.FloatTensor(self.data_features)
+        #self.data_jetfeatures = torch.cuda.FloatTensor(self.data_jetfeatures)
+        #self.data_truthlabel = torch.cuda.FloatTensor(self.data_truthlabel)
     @property
     def raw_file_names(self):
         raw_files = sorted(glob.glob(osp.join(self.raw_dir, '*.h5')))

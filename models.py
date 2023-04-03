@@ -245,7 +245,7 @@ class OskarTransformer(nn.Module):
         return outputs  # last-layer hidden state, (all hidden states), (all attentions)
 
 class Transformer(nn.Module):
-    def __init__(self, config, name, softmax):
+    def __init__(self, config, name, softmax, sigmoid):
         super().__init__()
         print(config)
         self.relu = gelu_new #nn.ReLU() 
@@ -260,9 +260,18 @@ class Transformer(nn.Module):
         config.attention_probs_dropout_prob = 0
         config.hidden_act = "gelu_new"
         self.softmax = softmax #config
+        self.sigmoid = sigmoid
         self.input_bn = nn.BatchNorm1d(config.feature_size)
 
         self.embedder = nn.Linear(config.feature_size, config.embedding_size)
+
+
+        self.final_embedder = nn.ModuleList([
+            nn.Linear(config.n_out_nodes, int(config.n_out_nodes/2)),
+            nn.Linear(int(config.n_out_nodes/2), int(config.n_out_nodes/4)),
+            nn.Linear(int(config.n_out_nodes/4), config.nclasses),
+        ])
+
         self.embed_bn = nn.BatchNorm1d(config.embedding_size)
 
         self.encoders = nn.ModuleList([OskarTransformer(config) for _ in range(config.num_encoders)])
@@ -300,13 +309,15 @@ class Transformer(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, sv=None,  mask=None, sv_mask=None):
         if mask is None:
             mask = torch.ones(x.size()[:-1], device=device)
         if len(mask.shape) == 3:
             attn_mask = mask.unsqueeze(1) # [B, P, P] -> [B, 1, P, P]
         else:
             attn_mask = mask.unsqueeze(1).unsqueeze(2) # [B, P] -> [B, 1, P, 1]
+
+
         attn_mask = (1 - attn_mask) * -1e9
 
         head_mask = [None] * self.config.num_hidden_layers
@@ -327,8 +338,13 @@ class Transformer(nn.Module):
         h = self.decoder_bn[1](h.permute(0, 2, 1)).permute(0, 2, 1)
 
         h = self.decoders[2](h)
-        #print("h.shape",h.shape)    
+        #print("before h.shape",h.shape)    
         h = torch.mean(h,dim=1)
+        h = self.final_embedder[0](h)
+        h = self.final_embedder[1](h)
+        h = self.final_embedder[2](h)
+        #print("after h.shape",h.shape)    
+        ### BUILD MLP THAT GOES FROM N_FEATURES (embedded space) TO N_CLASSES
         #print("h.shape",h.shape)    
         #print("h",h)    
         #print("h.shape",h.shape)    
@@ -336,6 +352,8 @@ class Transformer(nn.Module):
         #print("h.shape",h.shape)    
         if self.softmax:
             h = nn.Softmax(dim=1)(h)
+        if self.sigmoid:
+            h = nn.Sigmoid()(h)
         return h
 
 

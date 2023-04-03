@@ -68,13 +68,18 @@ def disco_all_vs_QCD(output, target, mass, LAMBDA_ADV=10.):
 
 def disco(output, target, mass, LAMBDA_ADV=10.,):
     disco = DiscoCorr()
-
-    crossentropy = nn.BCELoss()
+    crossentropy = nn.CrossEntropyLoss()
+    #crossentropy = nn.BCELoss()
     perf_loss = crossentropy(output,target)
     qcd_idxs = target[:,-1].to(torch.bool)
     mass_loss = 0 
-    for iO in range(output.shape[1]):
-        mass_loss += LAMBDA_ADV*(disco(output[qcd_idxs,iO],mass[qcd_idxs]))
+    #print(f"crossentropy: {perf_loss}")
+    for iO in range(0,4): #output.shape[1]):
+        #print(f"Disco along axis {iO}",disco(output[qcd_idxs,iO],mass[qcd_idxs]))
+        #mass_loss += LAMBDA_ADV*disco(output[qcd_idxs,iO],mass[qcd_idxs])
+        mass_loss += LAMBDA_ADV*disco(output[:,iO],mass)
+    #    print(f"mass decorr: {mass_loss}")
+    #print("perf_loss + mass_loss",perf_loss + mass_loss)
     '''
     if output.shape[1] == 4: 
         mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]) + disco(output[qcd_idxs,2], mass[qcd_idxs]) + disco(output[qcd_idxs,3], mass[qcd_idxs]))
@@ -119,6 +124,10 @@ def all_vs_QCD(output, target):
     mask_bb = (target[:,0] == 1) | qcd_idxs
     mask_cc = (target[:,1] == 1) | qcd_idxs
     mask_qq = (target[:,2] == 1) | qcd_idxs
+    #print(output[mask_bb].float(), target[mask_bb].float())
+    #print(output[mask_cc].float(), target[mask_cc].float())
+    #print(output[mask_qq].float(), target[mask_qq].float())
 
-    loss = nn.functional.binary_cross_entropy(output[mask_bb], target[mask_bb]) + nn.functional.binary_cross_entropy(output[mask_cc], target[mask_cc]) + nn.functional.binary_cross_entropy(output[mask_qq], target[mask_qq]) 
+    #sys.exit(1)
+    loss = nn.functional.binary_cross_entropy(output[mask_bb].float(), target[mask_bb].float()) + nn.functional.binary_cross_entropy(output[mask_cc].float(), target[mask_cc].float()) + nn.functional.binary_cross_entropy(output[mask_qq].float(), target[mask_qq].float()) 
     return loss

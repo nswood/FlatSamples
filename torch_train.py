@@ -11,6 +11,7 @@ import time
 from tqdm import tqdm 
 import utils #import *
 import sys
+import glob
 import models
 import losses
 # Imports neural net tools
@@ -25,7 +26,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score,  auc
 from torchmetrics import Accuracy
 from torchsummary import summary
+import torchsummary
 from sklearn.preprocessing import OneHotEncoder
+from loguru import logger
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 np.random.seed(42)
 
@@ -33,9 +36,9 @@ p = utils.ArgumentParser()
 p.add_args(
     ('--loss', p.STR), ('--model', p.STR), ('--nepochs', p.INT),
     ('--ipath', p.STR), ('--vpath', p.STR), ('--opath', p.STR),
-    ('--mpath', p.STR),
+    ('--mpath', p.STR), ('--continue_training', p.STORE_TRUE),
     ('--De', p.FLOAT), ('--Do',p.FLOAT), ('--hidden',p.FLOAT),
-    ('--nparts', p.INT),('--LAMBDA_ADV',p.FLOAT), 
+    ('--nparts', p.INT),('--LAMBDA_ADV',p.FLOAT),('--nclasses',p.INT), 
     ('--plot_text', p.STR), ('--mini_dataset',p.STORE_TRUE),
     ('--plot_features', p.STORE_TRUE), ('--run_captum',p.STORE_TRUE), ('--test_run',p.STORE_TRUE),
     ('--make_PN', p.STORE_TRUE), ('--make_N2',p.STORE_TRUE), ('--is_binary',p.STORE_TRUE),
@@ -64,12 +67,12 @@ args = p.parse_args()
 args.nparts = 100
 
 from dataset_loader_gpu import zpr_loader
-data_train = zpr_loader(args.ipath) 
-data_val = zpr_loader(args.vpath)
+data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
+data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
 
 from torch.utils.data import DataLoader
-train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=False)
-val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=False)
+train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=True,num_workers=4)
+val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=True,num_workers=4)
 
 assert(args.model)
 if not args.make_PN:
@@ -99,6 +102,8 @@ if args.loss == 'bce':
     loss = nn.BCELoss()
 elif args.loss == 'categorical':
     loss = nn.CrossEntropyLoss()
+    _sigmoid=False
+    _softmax=False
 elif args.loss == 'all_vs_QCD':
     loss = losses.all_vs_QCD
     _sigmoid=True
@@ -135,8 +140,6 @@ if False:
     labels = labels[nan_mask]
     singletonFeatureData = singletonFeatureData[nan_mask]
     
-if 'all_vs_QCD' in args.loss:
-    labels = labels[:,:3]      
 
 if args.plot_features:
     print("Plotting all features. This might take a few minutes")
@@ -146,9 +149,9 @@ if args.plot_features:
     utils.plot_features(singletonFeatureData,labels,utils._singleton_features_labels,args.opath)
 
 
-def run_inference(opath, plot_text, modelName, figpath, model, particleDataTest, labelsTest, singletonDataTest, svTestingData=None, eventTestingData=None, pfMaskTestingData=None, svMaskTestingData=None):    
+def run_inference(opath, plot_text, modelName, figpath, model):#, particleDataTest, labelsTest, singletonDataTest, svTestingData=None, eventTestingData=None, pfMaskTestingData=None, svMaskTestingData=None):    
     model.load_state_dict(torch.load(args.mpath))
-    eval_classifier(model, plot_text, modelName, figpath, particleDataTest, labelsTest, singletonDataTest,svTestingData=vertexDataTest,eventTestingData=eventTestingData,pfMaskTestingData=pfMaskTestingData,svMaskTestingData=svMaskTestingData,)
+    eval_classifier(model, plot_text, modelName, figpath, )#particleDataTest, labelsTest, singletonDataTest,svTestingData=vertexDataTest,eventTestingData=eventTestingData,pfMaskTestingData=pfMaskTestingData,svMaskTestingData=svMaskTestingData,)
     return
 
 def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
@@ -167,37 +170,47 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
     acc_vals_training = np.zeros(nepochs)
     acc_vals_validation = np.zeros(nepochs)   
 
-    is_pn = "PN" in model.name
-    if is_pn:
-        assert(maskpfTrain is not None)
     accuracy = Accuracy().to(device)
     model_dir = outdir
     os.system("mkdir -p ./"+model_dir)
     n_massbins = 20
-       
-    for iepoch in range(nepochs):
+
+    if args.continue_training:
+        model.load_state_dict(torch.load(args.mpath))
+        start_epoch = args.mpath.split("/")[-1].split("epoch_")[-1].split("_")[0]
+        start_epoch = int(start_epoch) + 1
+        print(f"Continuing training from epoch {start_epoch}...")
+    else:
+        start_epoch = 1
+    end_epoch = nepochs
+    for iepoch in range(start_epoch,end_epoch):
         loss_training, acc_training = [], []
         loss_validation, acc_validation = [], []
         print(f'Training Epoch {iepoch} on {len(train_loader.dataset)} jets')
-
+        model.train(True)
         for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(train_loader)):
 
+            if 'all_vs_QCD' in args.loss:
+                jet_truthlabel = jet_truthlabel[:,:-1]
+      
             if (args.test_run and istep>10 ): break
             x_pf = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
             #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
             optimizer.zero_grad()
-            #x_pf = x_pf.to(device)
-            #jet_features = jet_features.to(device)
-            #jet_truthlabel = jet_truthlabel.to(device)
+            x_pf = x_pf.to(device)
+            jet_features = jet_features.to(device)
+            jet_truthlabel = jet_truthlabel.to(device)
             output = model(x_pf)
             #sys.exit(1)
+            mass = jet_features[:,utils._singleton_labels.index('zpr_fj_msd')]
             if args.loss == 'jsd':
                 l = loss(output, jet_truthlabel, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
             elif 'disco' in args.loss:
+                #print(mass[:10])
                 l = loss(output, jet_truthlabel, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
             else:
                 l = loss(output, jet_truthlabel)
-
+            #print(istep,l.item())
             loss_training.append(l.item())
             acc_training.append(accuracy(output,torch.argmax(jet_truthlabel.squeeze(), dim=1)).cpu().detach().numpy())
 
@@ -207,19 +220,28 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             torch.cuda.empty_cache()
             #del , output
         print(f'Validating Epoch {iepoch} on {len(val_loader.dataset)} jets')
-        for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(val_loader)):
+        model.train(False)
+        for istep, (x_pf_val, jet_features_val, jet_truthlabel_val) in enumerate(tqdm(val_loader)):
+            #model.eval()
+            if 'all_vs_QCD' in args.loss:
+                jet_truthlabel_val = jet_truthlabel_val[:,:-1]      
             if (args.test_run and istep>10 ): break
-            x_pf = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
+            x_pf_val = torch.nan_to_num(x_pf_val,nan=0.,posinf=0.,neginf=0.)
             #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
 
-            #x_pf = x_pf.to(device)
-            #jet_features = jet_features.to(device)
-            #jet_truthlabel = jet_truthlabel.to(device)
+            x_pf_val = x_pf_val.to(device)
+            jet_features_val = jet_features_val.to(device)
+            jet_truthlabel_val = jet_truthlabel_val.to(device)
             
-
-            l_val = loss(output, jet_truthlabel)
+            output_val = model(x_pf_val)
+            mass = jet_features_val[:,utils._singleton_labels.index('zpr_fj_msd')]
+            if 'disco' in args.loss:
+                l_val = loss(output_val, jet_truthlabel_val, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
+            else:
+                l_val = loss(output_val, jet_truthlabel_val)
+            #print(istep,l_val.item())
             loss_validation.append(l_val.item())
-            acc_validation.append(accuracy(output,torch.argmax(jet_truthlabel.squeeze(), dim=1)).cpu().detach().numpy())
+            acc_validation.append(accuracy(output_val,torch.argmax(jet_truthlabel_val.squeeze(), dim=1)).cpu().detach().numpy())
 
             torch.cuda.empty_cache()
             #break
@@ -244,7 +266,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
 
         #del valInputs, valLabels
         torch.cuda.empty_cache()
-
+        #sys.exit(1)
 
         epoch_patience = 10
         if iepoch > epoch_patience and all(loss_vals_validation[max(0, iepoch - epoch_patience):iepoch] > min(np.append(loss_vals_validation[0:max(0, iepoch - epoch_patience)], 200))):
@@ -258,82 +280,47 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
     return classifier
 
 def eval_classifier(classifier, training_text, modelName, outdir, 
-                    particleTestingData, testingLabels, testingSingletons,
-                    svTestingData=None,eventTestingData=None,encoder=None,pfMaskTestingData=None,svMaskTestingData=None):
-  
+                    #particleTestingData, testingLabels, testingSingletons,
+                    #svTestingData=None,eventTestingData=None,encoder=None,pfMaskTestingData=None,svMaskTestingData=None):
+    ):
+
     #classifier.eval()  
     with torch.no_grad():
         print("Running predictions on test data")
         predictions = []
-
+        testingLabels = []
+        testingSingletons = []
         batch_size = 1000
- 
-        ##### ParticleNet
-        if "PN" in classifier.name:
-            for istep, (subtensor,subtensorSV,subtensorpfMask,subtensorsvMask,subtensorE) in enumerate(zip(np.array_split(particleTestingData,batch_size),np.array_split(svTestingData,batch_size),np.array_split(pfMaskTestingData,batch_size),np.array_split(svMaskTestingData,batch_size),np.array_split(eventTestingData,batch_size))):
-            #for istep in tqdm(range(int(len(particleTestingData)/batch_size))): 
-                #testInputs = torch.FloatTensor(particleTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                #testInputsSV = torch.FloatTensor(svTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                #testpfMask = torch.FloatTensor(pfMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                #testsvMask = torch.FloatTensor(svMaskTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                testpfPoints = subtensor[:,1:3,:]
-                testsvPoints = subtensorSV[:,-2:,:]
-      
-                #if eventTestingData is not None:
-                #    testInputsE = torch.FloatTensor(eventTestingData[istep*batch_size:(istep+1)*batch_size]).to(device)
-                
-                #else:
-                #    testInputsE=None
-                #print("here",testInputsE.shape)
-                #predictions.append(classifier(testpfPoints,testInputs,testpfMask,testsvPoints,testInputsSV,testsvMask,testInputsE).cpu().detach().numpy())    
-                testpfPoints = torch.FloatTensor(testpfPoints).to(device)
-                subtensor = torch.FloatTensor(subtensor).to(device)
-                subtensorpfMask = torch.FloatTensor(subtensorpfMask).to(device)
-                testsvPoints = torch.FloatTensor(testsvPoints).to(device)
-                subtensorSV = torch.FloatTensor(subtensorSV).to(device)
-                subtensorsvMask = torch.FloatTensor(subtensorsvMask).to(device)
-                subtensorE = torch.FloatTensor(subtensorE).to(device)
-                predictions.append(classifier(testpfPoints,subtensor,subtensorpfMask,testsvPoints,subtensorSV,subtensorsvMask,subtensorE).cpu().detach().numpy())
-                if (args.test_run): break
-        ##### IN PF+SV+event
-        elif svTestingData is not None and eventTestingData is not None:
-            for subtensor,subtensorSV,subtensorE in zip(np.array_split(particleTestingData,1000),np.array_split(svTestingData,1000),np.array_split(eventTestingData,1000)):
 
-                testInputs = torch.FloatTensor(subtensor).to(device)
-                testInputsSV = torch.FloatTensor(subtensorSV).to(device)
-                testInputsE = torch.FloatTensor(subtensorE).to(device)
-                predictions.append(classifier(testInputs,testInputsSV,testInputsE).cpu().detach().numpy())
-                del testInputs, testInputsSV, testInputsE
-                #if (args.test_run): break 
- 
-        ##### PF+SV
-        elif svTestingData is not None:
-            for subtensor,subtensorSV in zip(np.array_split(particleTestingData,1000),np.array_split(svTestingData,1000)):
-             
-                testInputs = torch.FloatTensor(subtensor).to(device)
-                testInputsSV = torch.FloatTensor(subtensorSV).to(device)
-                predictions.append(classifier(testInputs,testInputsSV).cpu().detach().numpy())
-                del testInputs, testInputsSV
-                #if (args.test_run): break 
-        ##### PF 
-        else:
-            for subtensor in np.array_split(particleTestingData,1000):
-                testInputs = torch.FloatTensor(subtensor).to(device)
-                predictions.append(classifier(testInputs).cpu().detach().numpy())
-                del testInputs
-                #if (args.test_run): break 
+        for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(val_loader)):
+            #model.eval()
+            if 'all_vs_QCD' in args.loss:
+                jet_truthlabel = jet_truthlabel[:,:-1]      
+            if (args.test_run and istep>10 ): break
+
+            predictions.append(nn.Softmax(dim=1)(classifier(x_pf)).cpu().detach().numpy())
+            testingLabels.append(jet_truthlabel.cpu().detach().numpy())
+            testingSingletons.append(jet_features.cpu().detach().numpy())
+            torch.cuda.empty_cache()
+            #break
     predictions = [item for sublist in predictions for item in sublist]
+    testingLabels = [item for sublist in testingLabels for item in sublist]
+    testingSingletons = [item for sublist in testingSingletons for item in sublist]
     predictions = np.array(predictions)#.astype(np.float32)
+    testingLabels = np.array(testingLabels)
+    testingSingletons = np.array(testingSingletons)
+
     os.system("mkdir -p "+outdir)
-    np.save(outdir+"/predictions.npy", predictions)
+    np.savez(outdir+"/predictions.npy", predictions=predictions, labels=testingLabels, singletons=testingSingletons)
     if 'all_vs_QCD' in args.loss:
         qcd_idxs = np.where(testingLabels.sum(axis=1)==0,True,False)
     else:
         qcd_idxs = testingLabels[:,-1].astype(bool)
-        utils.plot_correlation(predictions[qcd_idxs,-1],testingSingletons[qcd_idxs,0], "QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),outdir, "qcd_vs_mass")
+        utils.plot_correlation(predictions[qcd_idxs,-1],testingSingletons[qcd_idxs,utils._singleton_labels.index("zpr_fj_msd")], "QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,50),np.linspace(40,350,40),outdir, "qcd_vs_mass")
         utils.sculpting_curves(predictions[qcd_idxs,-1], testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="QCD", inverted=False)
 
-    utils.plot_roc_curve(testingLabels, predictions, training_text, outdir, modelName, all_vs_QCD="all_vs_QCD" in args.loss, QCD_only=True)
+    utils.plot_roc_curve(testingLabels, predictions, training_text, outdir, modelName, all_vs_QCD="all_vs_QCD" in args.loss, QCD_only=False)
+    utils.plot_features(testingSingletons,testingLabels,utils._singleton_labels,outdir)
 
     if args.is_binary:
         
@@ -351,37 +338,31 @@ def eval_classifier(classifier, training_text, modelName, outdir,
         prob_qq = predictions[qcd_idxs,2]
         utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], training_text, outdir, modelName, score="qq",inverted=True)
 
-if args.make_PN:
-    predictions = singletonData[:,[utils._singleton_labels.index("zpr_fj_particleNetMD_Xbb"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xcc"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xqq"), utils._singleton_labels.index("zpr_fj_particleNetMD_QCD")]]
-    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "particleNet-MD", all_vs_QCD=False,QCD_only=True)
+    predictionsPN = testingSingletons[:,[utils._singleton_labels.index("zpr_fj_particleNetMD_Xbb"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xcc"), utils._singleton_labels.index("zpr_fj_particleNetMD_Xqq"), utils._singleton_labels.index("zpr_fj_particleNetMD_QCD")]]
+    utils.plot_roc_curve(testingLabels, predictionsPN, args.plot_text, outdir, "particleNet-MD", all_vs_QCD=False,QCD_only=False)
     
-    qcd_idxs = labels[:,-1].astype(bool)
-    prob_bb = predictions[qcd_idxs,0]
-    utils.sculpting_curves(prob_bb, singletonData[qcd_idxs,:],"ParticleNet-MD:bb score", args.opath, "particleNet-MD-bb",inverted=True)
-    prob_cc = predictions[qcd_idxs,1]
-    utils.sculpting_curves(prob_cc, singletonData[qcd_idxs,:], "ParticleNet-MD:cc score", args.opath, "particleNet-MD-cc",inverted=True)
-    prob_qq = predictions[qcd_idxs,2]
-    utils.sculpting_curves(prob_qq, singletonData[qcd_idxs,:], "ParticleNet-MD:qq score", args.opath, "particleNet-MD-qq",inverted=True)
-    prob_QCD = predictions[qcd_idxs,3]
-    utils.sculpting_curves(prob_QCD, singletonData[qcd_idxs,:], "ParticleNet-MD:QCD score", args.opath, "particleNet-MD-QCD",inverted=False)
-    labels = np.concatenate((np.expand_dims(np.sum(labels[:,:-1],axis=1),-1),np.expand_dims(labels[:,-1],-1)),axis=1)
-    predictions = np.concatenate((np.expand_dims(np.sum(predictions[:,:-1],axis=1),-1),np.expand_dims(predictions[:,-1],-1)),axis=1)
-    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "particleNet-MD-2prong", all_vs_QCD=False,)
-
+    qcd_idxs = testingLabels[:,-1].astype(bool)
+    prob_bb = predictionsPN[qcd_idxs,0]
+    utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:],"ParticleNet-MD:bb score", outdir, "particleNet-MD-bb",inverted=True)
+    prob_cc = predictionsPN[qcd_idxs,1]
+    utils.sculpting_curves(prob_cc, testingSingletons[qcd_idxs,:], "ParticleNet-MD:cc score", outdir, "particleNet-MD-cc",inverted=True)
+    prob_qq = predictionsPN[qcd_idxs,2]
+    utils.sculpting_curves(prob_qq, testingSingletons[qcd_idxs,:], "ParticleNet-MD:qq score", outdir, "particleNet-MD-qq",inverted=True)
+    prob_QCD = predictionsPN[qcd_idxs,3]
+    utils.sculpting_curves(prob_QCD, testingSingletons[qcd_idxs,:], "ParticleNet-MD:QCD score", outdir, "particleNet-MD-QCD",inverted=False)
+    testingLabelsPN = np.concatenate((np.expand_dims(np.sum(testingLabels[:,:-1],axis=1),-1),np.expand_dims(testingLabels[:,-1],-1)),axis=1)
+    predictionsPN = np.concatenate((np.expand_dims(np.sum(predictionsPN[:,:-1],axis=1),-1),np.expand_dims(predictionsPN[:,-1],-1)),axis=1)
+    utils.plot_roc_curve(testingLabelsPN, predictionsPN, args.plot_text, outdir, "particleNet-MD-2prong", all_vs_QCD=False, QCD_only=False)
     sys.exit(1)
-
-if args.make_N2:
-    predictions = singletonData[:,[utils._singleton_labels.index("zpr_fj_n2b1")]]
-    predictions = (predictions - np.min(predictions)) / ( np.max(predictions) - np.min(predictions))
-    print(predictions.shape) 
-    predictions = np.concatenate((1-predictions,predictions),axis=1)
-    print(predictions.shape) 
-    utils.plot_roc_curve(labels, predictions, args.plot_text, args.opath, "N2", all_vs_QCD=False,)
+    predictionsN2 = testingSingletons[:,[utils._singleton_labels.index("zpr_fj_n2b1")]]
+    predictionsN2 = (predictionsN2 - np.min(predictionsN2)) / ( np.max(predictionsN2) - np.min(predictionsN2))
+    predictionsN2 = np.concatenate((1-predictionsN2,predictionsN2),axis=1)
+    utils.plot_roc_curve(labels, predictionsN2, args.plot_text, outdir, "N2", all_vs_QCD=False,qcd_only=False)
     qcd_idxs = labels[:,-1].astype(bool)
-    prob_QCD = predictions[qcd_idxs,0]
-    utils.sculpting_curves(prob_QCD, singletonData[qcd_idxs,:],"N2:QCD score", args.opath, "N2",inverted=True)
-    prob_N2 = predictions[qcd_idxs,1]
-    utils.sculpting_curves(prob_N2, singletonData[qcd_idxs,:],"N2:2prong score", args.opath, "N2",inverted=False)
+    prob_QCD = predictionsN2[qcd_idxs,0]
+    utils.sculpting_curves(prob_QCD, testingSingletons[qcd_idxs,:],"N2:QCD score", outdir, "N2",inverted=True)
+    prob_N2 = predictionsN2[qcd_idxs,1]
+    utils.sculpting_curves(prob_N2, testingSingletons[qcd_idxs,:],"N2:2prong score", outdir, "N2",inverted=False)
     
     sys.exit(1)
 maskpfTrain = None
@@ -469,29 +450,50 @@ elif args.model=='IN_noSV':
 
 elif args.model=='transformer':
 
-    model = models.Transformer(args,"transformer",_softmax)
+    model = models.Transformer(args,"transformer",_softmax,_sigmoid)
 else:
     raise ValueError("Don't understand model ", args.model) 
-
+model = nn.DataParallel(model)
+#torch.cuda.set_device(0)
+#torch.cuda.set_device(1)
+#torch.cuda.set_device(2)
+#torch.cuda.set_device(3)
+#torch.distributed.init_process_group(
+#    backend='nccl', world_size=4, init_method='...'
+#)
+#model = nn.parallel.DistributedDataParallel(model)
 model = model.to(device)
-outdir = f"./{args.opath}/{model.name.replace(' ','_')}"
-outdir = utils.makedir(outdir)
- 
+outdir = f"./{args.opath}/{model.module.name.replace(' ','_')}"
+outdir = utils.makedir(outdir,args.continue_training)
+
+#with open(outdir+'/model.log', 'w') as sys.stdout:
+summary(model,(100,13))
+#
+#with open(outdir+'/args.log', 'w') as sys.stdout:
+print(args)
+
 if args.mpath:
-    run_inference(args.mpath, args.plot_text, model.name, args.mpath+"_plots", 
-                  model, particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,
-                  pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,
-    )
+    if args.continue_training:
+        #models = sorted(glob.glob(outdir+"/models/"),key = lambda x:datetime.strptime(x[0], '%d-%m-%Y'))
+        #print(models)
+        #sys.exit(1)
+        model = train_classifier(model, loss, batchsize, n_epochs, model.module.name, "/".join(args.mpath.split("/")[:-1]),
+        )
+    else:
+        run_inference(args.mpath, args.plot_text, model.module.name, args.mpath+"_plots", 
+                  model, #particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,
+                  #pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,
+        )
 
 else: 
-    model = train_classifier(model, loss, batchsize, n_epochs, model.name, outdir+"/models/", 
+    model = train_classifier(model, loss, batchsize, n_epochs, model.module.name, outdir+"/models/", 
                              #particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0],
                              #jetMassValidationData=singletonDataVal[:,0],
                              #svTrainingData=vertexDataTrain, svValidationData=vertexDataVal,
                              #eventTrainingData=singletonFeatureDataTrain, eventValidationData=singletonFeatureDataVal,
                              #maskpfTrain=maskpfTrain, maskpfVal=maskpfVal, masksvTrain=masksvTrain, masksvVal=masksvVal,
     )
-    eval_classifier(model, args.plot_text, model.name, outdir+"/plots/", particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,) 
+    eval_classifier(model, args.plot_text, model.module.name, outdir+"/plots/", )#particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,) 
 
 if args.run_captum:
     from captum.attr import IntegratedGradients

@@ -7,11 +7,11 @@ from torch.utils.data.dataset import Dataset  # For custom datasets
 
 
 class zpr_loader(Dataset):
-    def __init__(self, raw_paths, qcd_only=True, transform=None):
+    def __init__(self, raw_paths, qcd_only=True, transform=None, maxfiles=None):
         #super(zpr_loader, self).__init__(raw_paths)
         self.strides = [0]
         #self.ratio = ratio
-        self.raw_paths = glob.glob(raw_paths+'*h5')
+        self.raw_paths = glob.glob(raw_paths+'*h5')[:maxfiles]
         self.calculate_offsets()
     def calculate_offsets(self):
         for path in self.raw_paths:
@@ -52,10 +52,10 @@ class zpr_loader(Dataset):
             #Npfs = np.count_nonzero(f['features'][idx_in_file,:,0])
 
 
-            x_pf = torch.cuda.FloatTensor(f['features'][idx_in_file,:,:]).cuda()
+            x_pf = torch.FloatTensor(np.array(f['features'][idx_in_file,:,:],dtype=np.float32))
             #x_sv = torch.cuda.FloatTensor(f['features_SV'][idx_in_file,:,:]).cuda()
 
-            y = torch.cuda.FloatTensor(np.array(f['jet_truthlabel'][idx_in_file],dtype=np.float32))
-            x_jet = torch.cuda.FloatTensor(f['jet_features'][idx_in_file])
+            y = torch.FloatTensor(np.array(f['jet_truthlabel'][idx_in_file],dtype=np.float32))
+            x_jet = torch.FloatTensor(np.array(f['jet_features'][idx_in_file],dtype=np.float32))
 
-            return x_pf, x_jet, y
+            return {"x_pf":x_pf, "x_jet": x_jet, "y":y}

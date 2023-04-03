@@ -51,7 +51,10 @@ _titles={
   "zpr_fj_nparts"      : {"name" : "Number of particles", "bins" : np.linspace(0,150,51)},
   "zpr_fj_nBHadrons"   : {"name" : "Number of B hadrons", "bins" : np.linspace(0,10,11)},
   "zpr_fj_nCHadrons"   : {"name" : "Number of C hadrons", "bins" : np.linspace(0,10,11)},
-
+  "zpr_fj_particleNetMD_Xbb" : {"name" : "ParticleNetMD-Xbb score", "bins" : np.linspace(0,1,51)} ,
+  "zpr_fj_particleNetMD_Xcc" :  {"name" : "ParticleNetMD-Xcc score", "bins" : np.linspace(0,1,51)} ,
+  "zpr_fj_particleNetMD_Xqq" :  {"name" : "ParticleNetMD-Xqq score", "bins" : np.linspace(0,1,51)} ,
+  "zpr_fj_particleNetMD_QCD" :  {"name" : "ParticleNetMD-QCD score", "bins" : np.linspace(0,1,51)} ,
   "zpr_PF_ptrel" :  {"name" : "Particle relative $\mathrm{p_T}$",  "bins" : np.linspace(0,1,nbins)},
   "zpr_PF_etarel" : {"name" : "Particle relative $\mathrm{\eta}$", "bins" : np.linspace(-1,1,nbins)},
   "zpr_PF_phirel" : {"name" : "Particle relative $\mathrm{\phi}$", "bins" : np.linspace(-1,1,nbins)},
@@ -75,8 +78,8 @@ _titles={
 
 
 }
-
-_singleton_labels=["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_fj_n2b1","zpr_fj_tau21","zpr_fj_particleNetMD_QCD", "zpr_fj_particleNetMD_Xbb", "zpr_fj_particleNetMD_Xcc", "zpr_fj_particleNetMD_Xqq","zpr_fj_nBHadrons","zpr_fj_nCHadrons", "zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour", "zpr_fj_nBtags","zpr_fj_nCtags","zpr_fj_nLtags","zpr_fj_nparts"]
+_singleton_labels = ['zpr_fj_pt','zpr_fj_eta','zpr_fj_phi','zpr_fj_msd','zpr_fj_n2b1','zpr_fj_particleNetMD_Xbb','zpr_fj_particleNetMD_Xcc','zpr_fj_particleNetMD_Xqq','zpr_fj_particleNetMD_QCD']
+#_singleton_labels=["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_fj_n2b1","zpr_fj_tau21","zpr_fj_particleNetMD_QCD", "zpr_fj_particleNetMD_Xbb", "zpr_fj_particleNetMD_Xcc", "zpr_fj_particleNetMD_Xqq","zpr_fj_nBHadrons","zpr_fj_nCHadrons", "zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour", "zpr_fj_nBtags","zpr_fj_nCtags","zpr_fj_nLtags","zpr_fj_nparts"]
 _singleton_features_labels=["zpr_fj_jetNSecondaryVertices","zpr_fj_jetNTracks","zpr_fj_tau1_trackEtaRel_0","zpr_fj_tau1_trackEtaRel_1","zpr_fj_tau1_trackEtaRel_2","zpr_fj_tau2_trackEtaRel_0","zpr_fj_tau2_trackEtaRel_1","zpr_fj_tau2_trackEtaRel_3","zpr_fj_tau1_flightDistance2dSig","zpr_fj_tau2_flightDistance2dSig","zpr_fj_tau1_vertexDeltaR","zpr_fj_tau1_vertexEnergyRatio","zpr_fj_tau2_vertexEnergyRatio","zpr_fj_tau1_vertexMass","zpr_fj_tau2_vertexMass","zpr_fj_trackSip2dSigAboveBottom_0","zpr_fj_trackSip2dSigAboveBottom_1","zpr_fj_trackSip2dSigAboveCharm","zpr_fj_trackSip3dSig_0","zpr_fj_trackSip3dSig_0","zpr_fj_tau1_trackSip3dSig_1","zpr_fj_trackSip3dSig_1","zpr_fj_tau2_trackSip3dSig_0","zpr_fj_tau2_trackSip3dSig_1","zpr_fj_trackSip3dSig_2","zpr_fj_trackSip3dSig_3","zpr_fj_z_ratio"]
 _p_features_labels=["zpr_PF_ptrel","zpr_PF_etarel","zpr_PF_phirel","zpr_PF_dz","zpr_PF_d0","zpr_PF_pdgId"]
 _SV_features_labels=["zpr_SV_mass","zpr_SV_dlen","zpr_SV_dlenSig","zpr_SV_dxy","zpr_SV_dxySig","zpr_SV_chi2","zpr_SV_ptrel","zpr_SV_x","zpr_SV_y","zpr_SV_z","zpr_SV_pAngle","zpr_SV_etarel","zpr_SV_phirel"]
@@ -103,8 +106,8 @@ def axis_settings(ax):
     ax.grid(which='major', alpha=0.9, linestyle='dotted')
     return ax
 
-def makedir(outdir):
-    if os.path.isdir(outdir):
+def makedir(outdir, continue_training=False):
+    if os.path.isdir(outdir) and not continue_training:
         from datetime import datetime
         now = datetime.now()
         outdir += now.strftime("%Y_%D_%H_%M").replace("/","_")
@@ -136,17 +139,20 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                tmp = array[labels[:,ilabel].astype(bool),ifeat]
                ax.hist(tmp,  
                        label=processes[ilabel], bins=bins, 
-                       histtype='step',alpha=0.7, 
+                       histtype='step',alpha=0.9,linewidth=1.5, 
                        density=True,
                )
-            ax.set_yscale('log')
             ax.set_xlabel(x_label,horizontalalignment='right',x=1.0,**axis_font)
             ax.set_ylabel("Normalized counts",horizontalalignment='right',y=1.0,**axis_font)
             ax.legend(loc="upper right",prop=legend_font)
             plt.tight_layout()
             plt.savefig(outdir+'/'+feature_labels[ifeat]+'.png')
             plt.savefig(outdir+'/'+feature_labels[ifeat]+'.pdf')
+            ax.set_yscale('log')
+            plt.savefig(outdir+'/'+feature_labels[ifeat]+'logy.png')
+            plt.savefig(outdir+'/'+feature_labels[ifeat]+'logy.pdf')
             plt.clf()
+            continue #return
             if ifeat > 1:
                 ibin=0
                 for msd_lo,msd_hi in [(40.,80.),(80.,120.),(120.,160.),(160.,250.),(250.,350.)]:
@@ -239,7 +245,7 @@ def plot_response(testLabels, testPredictions, training_text, opath, modelName, 
             bins=nn_bins,
             label=processes[itruth],
             histtype='step',alpha=0.7,
-            #density=True,
+            density=True,
             lw=2.0,
         )
         response /= np.sum(response)
@@ -270,7 +276,7 @@ def plot_response(testLabels, testPredictions, training_text, opath, modelName, 
         plt.savefig(opath+"/%s_response_class_%s.pdf"%(modelName,ilabel))
         return 
 
-    print(response_l, bins)
+    #print(response_l, bins)
     return response_l, bins
 def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName, all_vs_QCD, QCD_only):
     os.system("mkdir -p "+opath)
@@ -288,7 +294,10 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
     #    n_processes -= 1 
     #for ilabel in range(testLabels.shape[1]):
     for ilabel in range(n_processes):
-        nn_bins = np.linspace(-0.001,1.001,1000) 
+        if all_vs_QCD:
+            nn_bins = np.linspace(-5,5,1000)
+        else:  
+            nn_bins = np.linspace(-0.001,1.001,1000)
         #nn_bins = np.concatenate((np.linspace(0.,0.0039,10000) , np.linspace(0.004,0.993,1000), np.linspace(0.994,1.0001,10000)))
         #nn_bins = np.concatenate((np.linspace(-0.001,0.04,10000) , np.linspace(0.041,0.95,10000), np.linspace(0.95001,1.001,10000)))
         plot_response(testLabels, testPredictions, training_text, opath, modelName, np.linspace(-0.01,1.01,50), ilabel, all_vs_QCD=all_vs_QCD, plot=True)
@@ -299,8 +308,8 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
         for itruth in range(testLabels.shape[1]):
             #>>> bins = np.concatenate((np.linspace(0.00,0.004,10000), np.linspace(0.004,0.994, 1000), np.linspace(0.994,1.0, 10000)))
             #>>> [np.sum(output[ib:]) for ib in range(len(bins),0,-1)]
-            print ([np.sum(response_l[itruth][ib:]) for ib in range(len(nn_bins),0,-1) ])
-            print(np.sum(response_l[itruth]))
+            #print ([np.sum(response_l[itruth][ib:]) for ib in range(len(nn_bins),0,-1) ])
+            #print(np.sum(response_l[itruth]))
             #if QCD_only and "QCD" not in processes[itruth]: continue 
             if itruth == ilabel:
                 tpr = [ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(nn_bins),0,-1) ]
@@ -309,7 +318,7 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
                 fpr_l.append([ np.sum(response_l[itruth][ib:])/np.sum(response_l[itruth]) for ib in range(len(nn_bins),0,-1) ])
                 fpr_label_l.append(processes[itruth])
             #print(processes[itruth], response_l, bins)
-        print(tpr,fpr_l)
+        #print(tpr,fpr_l)
         if all_vs_QCD:
             fpr_l.append([ np.sum(response_l[-1][ib:])/np.sum(response_l[-1]) for ib in range(len(nn_bins),0,-1) ])
             fpr_label_l.append("QCD")
@@ -384,20 +393,21 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     #    QcdPredictionsCdf.append(tot)
 
     pctls = [0.05,0.10,0.25,0.75,1.00]
-    print("before",QcdPredictionsPdf)
+    #print("before",QcdPredictionsPdf)
     #if testQcdPredictions.mean()<0.5:
     if inverted:
         #QcdPredictionsPdf = QcdPredictionsPdf[::-1]
         invert=True
         #pctls = [
         pctls = [1-pctl for pctl in pctls]
-    print("after",QcdPredictionsPdf)
+    #print("after",QcdPredictionsPdf)
     QcdPredictionsCdf = np.cumsum(QcdPredictionsPdf)*(edges[1]-edges[0])
     cuts = np.searchsorted(QcdPredictionsCdf,pctls)
 
-    
+    sculpting_vars = ['zpr_fj_pt','zpr_fj_eta','zpr_fj_phi','zpr_fj_msd','zpr_fj_n2b1','zpr_fj_particleNetMD_Xbb','zpr_fj_particleNetMD_Xcc','zpr_fj_particleNetMD_Xqq','zpr_fj_particleNetMD_QCD']
+    _singleton_labels = ['zpr_fj_pt','zpr_fj_eta','zpr_fj_phi','zpr_fj_msd','zpr_fj_n2b1','zpr_fj_particleNetMD_Xbb','zpr_fj_particleNetMD_Xcc','zpr_fj_particleNetMD_Xqq','zpr_fj_particleNetMD_QCD']
+ 
 
-    sculpting_vars = ["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour","zpr_fj_nparts","zpr_fj_nBHadrons","zpr_fj_nCHadrons",]
     training_text = training_text.split(":")
     if score:
         training_text.append(score + " score")
@@ -426,6 +436,7 @@ def sculpting_curves(testQcdPredictions, testQcdKinematics, training_text, opath
     plt.savefig(opath+"/%s_scores_after_cuts_%s.pdf"%(modelName,"_"+score if score else ""))
 
     for i,label in enumerate(sculpting_vars): 
+        #print(i,label)
         plt.clf()
         fig,ax=plt.subplots()
         hep.cms.label("Preliminary",rlabel=rlabel, data=False)
