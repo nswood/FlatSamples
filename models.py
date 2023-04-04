@@ -245,7 +245,7 @@ class OskarTransformer(nn.Module):
         return outputs  # last-layer hidden state, (all hidden states), (all attentions)
 
 class Transformer(nn.Module):
-    def __init__(self, config, name, softmax, sigmoid):
+    def __init__(self, config, name, softmax, sigmoid,sv_branch=False):
         super().__init__()
         print(config)
         self.relu = gelu_new #nn.ReLU() 
@@ -264,13 +264,33 @@ class Transformer(nn.Module):
         self.input_bn = nn.BatchNorm1d(config.feature_size)
 
         self.embedder = nn.Linear(config.feature_size, config.embedding_size)
-
-
+        if sv_branch:
+            self.input_bn_sv = nn.BatchNorm1d(config.feature_sv_size)
+            self.embedder_sv = nn.Linear(config.feature_sv_size, config.embedding_size)
+            self.final_embedder_sv = nn.ModuleList([
+                nn.Linear(config.n_out_nodes*2, int(config.n_out_nodes)),
+                nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes)),
+                nn.Linear(int(config.n_out_nodes), config.nclasses),
+            ])
+           
+            self.embed_bn_sv = nn.BatchNorm1d(config.embedding_size)
+    
+            self.encoders_sv = nn.ModuleList([OskarTransformer(config) for _ in range(config.num_encoders)])
+            self.decoders_sv = nn.ModuleList([
+                                           nn.Linear(config.hidden_size, config.hidden_size),
+                                           nn.Linear(config.hidden_size, config.hidden_size),
+                                           nn.Linear(config.hidden_size, config.n_out_nodes)
+                                           ])
+    
+    
+    
+            self.decoder_bn_sv = nn.ModuleList([nn.BatchNorm1d(config.hidden_size) for _ in self.decoders_sv[:-1]])
         self.final_embedder = nn.ModuleList([
             nn.Linear(config.n_out_nodes, int(config.n_out_nodes/2)),
             nn.Linear(int(config.n_out_nodes/2), int(config.n_out_nodes/4)),
             nn.Linear(int(config.n_out_nodes/4), config.nclasses),
         ])
+
 
         self.embed_bn = nn.BatchNorm1d(config.embedding_size)
 
@@ -340,16 +360,50 @@ class Transformer(nn.Module):
         h = self.decoders[2](h)
         #print("before h.shape",h.shape)    
         h = torch.mean(h,dim=1)
-        h = self.final_embedder[0](h)
-        h = self.final_embedder[1](h)
-        h = self.final_embedder[2](h)
-        #print("after h.shape",h.shape)    
-        ### BUILD MLP THAT GOES FROM N_FEATURES (embedded space) TO N_CLASSES
-        #print("h.shape",h.shape)    
-        #print("h",h)    
-        #print("h.shape",h.shape)    
-        #h = torch.squeeze(h,dim=-1) 
-        #print("h.shape",h.shape)    
+
+        if sv is not None:
+            if sv_mask is None:
+                sv_mask = torch.ones(sv.size()[:-1], device=device)
+            if len(sv_mask.shape) == 3:
+                attn_sv_mask = sv_mask.unsqueeze(1) # [B, P, P] -> [B, 1, P, P]
+            else:
+                attn_sv_mask = sv_mask.unsqueeze(1).unsqueeze(2) # [B, P] -> [B, 1, P, 1]
+            attn_sv_mask = (1 - attn_sv_mask) * -1e9
+            head_sv_mask = [None] * self.config.num_hidden_layers
+
+            x = self.input_bn_sv(sv.permute(0, 2, 1)).permute(0, 2, 1)
+            
+            j = self.embedder_sv(x)
+            j = torch.relu(j)
+            j = self.embed_bn_sv(j.permute(0, 2, 1)).permute(0, 2, 1)
+
+            for e in self.encoders_sv:
+                j = e(j, attn_sv_mask, head_sv_mask)[0]
+            j = self.decoders_sv[0](j)
+            j = self.relu(j)
+            j = self.decoder_bn_sv[0](j.permute(0,2,1)).permute(0,2,1)
+
+            j = self.decoders_sv[1](j)
+            j = self.relu(j)
+            j = self.decoder_bn_sv[1](j.permute(0,2,1)).permute(0,2,1)
+            
+            j = self.decoders_sv[2](j)
+            j = torch.mean(j,dim=1)
+
+            #print("h",h)
+            #print("h.shape",h.shape)
+            #print("j",j)
+            #print("j.sjape",j.shape)
+            h = torch.cat((h,j),dim=1)
+            h = self.final_embedder_sv[0](h)
+            h = self.final_embedder_sv[1](h)
+            h = self.final_embedder_sv[2](h)
+
+        else:
+            h = self.final_embedder[0](h)
+            h = self.final_embedder[1](h)
+            h = self.final_embedder[2](h)
+
         if self.softmax:
             h = nn.Softmax(dim=1)(h)
         if self.sigmoid:

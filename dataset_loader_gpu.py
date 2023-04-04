@@ -29,14 +29,17 @@ class zpr_loader(Dataset):
             with h5py.File(path, 'r') as f:
 
                  tmp_features = f['features'][()].astype(np.float32)
+                 tmp_sv_features = f['features_SV'][()].astype(np.float32)
                  tmp_jetfeatures = f['jet_features'][()].astype(np.float32)
                  tmp_truthlabel = f['jet_truthlabel'][()]
                  if fi == 0:
                      self.data_features = tmp_features
+                     self.data_sv_features = tmp_sv_features
                      self.data_jetfeatures = tmp_jetfeatures
                      self.data_truthlabel = tmp_truthlabel
                  else:
                      self.data_features = np.concatenate((self.data_features,tmp_features))
+                     self.data_sv_features = np.concatenate((self.data_sv_features,tmp_sv_features))
                      self.data_jetfeatures = np.concatenate((self.data_jetfeatures,tmp_jetfeatures))
                      self.data_truthlabel = np.concatenate((self.data_truthlabel,tmp_truthlabel))
 
@@ -57,6 +60,7 @@ class zpr_loader(Dataset):
 
     def __getitem__(self, idx):
         x_pf = self.data_features[idx,:,:]
+        x_sv = self.data_sv_features[idx,:,:]
         x_jet = self.data_jetfeatures[idx,:]
         y = self.data_truthlabel[idx]
-        return x_pf, x_jet, y
+        return x_pf, x_sv, x_jet, y

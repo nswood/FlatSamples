@@ -36,7 +36,7 @@ p = utils.ArgumentParser()
 p.add_args(
     ('--loss', p.STR), ('--model', p.STR), ('--nepochs', p.INT),
     ('--ipath', p.STR), ('--vpath', p.STR), ('--opath', p.STR),
-    ('--mpath', p.STR), ('--continue_training', p.STORE_TRUE),
+    ('--mpath', p.STR), ('--continue_training', p.STORE_TRUE), ('--sv', p.STORE_TRUE),
     ('--De', p.FLOAT), ('--Do',p.FLOAT), ('--hidden',p.FLOAT),
     ('--nparts', p.INT),('--LAMBDA_ADV',p.FLOAT),('--nclasses',p.INT), 
     ('--plot_text', p.STR), ('--mini_dataset',p.STORE_TRUE),
@@ -49,7 +49,7 @@ p.add_args(
     ('--abseta',p.STORE_TRUE), ('--kinematics_only',p.STORE_TRUE),
     ('--istransformer',p.STORE_TRUE),
     ('--num_encoders', p.INT),('--is_decoder',p.STORE_TRUE),
-    ('--embedding_size', p.INT), ('--hidden_size', p.INT), ('--feature_size', p.INT),
+    ('--embedding_size', p.INT), ('--hidden_size', p.INT), ('--feature_size', p.INT), ('--feature_sv_size', p.INT),
     ('--num_attention_heads', p.INT), ('--intermediate_size', p.INT),
     ('--label_size', p.INT), ('--num_hidden_layers', p.INT), ('--batchsize', p.INT),
     ('--mask_charged', p.STORE_TRUE), ('--lr', {'type': float}),
@@ -67,11 +67,13 @@ args = p.parse_args()
 args.nparts = 100
 
 from dataset_loader_gpu import zpr_loader
-data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
+if not args.mpath or (args.mpath and args.continue_training):
+  data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
 data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
 
 from torch.utils.data import DataLoader
-train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=True,num_workers=0)
+if not args.mpath or (args.mpath and args.continue_training):
+  train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=True,num_workers=0)
 val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=True,num_workers=0)
 
 assert(args.model)
@@ -188,19 +190,23 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         loss_validation, acc_validation = [], []
         print(f'Training Epoch {iepoch} on {len(train_loader.dataset)} jets')
         model.train(True)
-        for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(train_loader)):
+        for istep, (x_pf, x_sv, jet_features, jet_truthlabel) in enumerate(tqdm(train_loader)):
             
             if 'all_vs_QCD' in args.loss:
                 jet_truthlabel = jet_truthlabel[:,:-1]
       
             if (args.test_run and istep>10 ): break
             x_pf = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
-            #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
+            x_sv = torch.nan_to_num(x_sv,nan=0.,posinf=0.,neginf=0.)
             optimizer.zero_grad()
             x_pf = x_pf.to(device)
+            x_sv = x_sv.to(device)
             jet_features = jet_features.to(device)
             jet_truthlabel = jet_truthlabel.to(device)
-            output = model(x_pf)
+            if args.sv:
+                output = model(x_pf,x_sv)
+            else:
+                output = model(x_pf)
             #sys.exit(1)
             mass = jet_features[:,utils._singleton_labels.index('zpr_fj_msd')]
             if args.loss == 'jsd':
@@ -221,19 +227,23 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
             #del , output
         print(f'Validating Epoch {iepoch} on {len(val_loader.dataset)} jets')
         model.train(False)
-        for istep, (x_pf_val, jet_features_val, jet_truthlabel_val) in enumerate(tqdm(val_loader)):
+        for istep, (x_pf_val, x_sv_val, jet_features_val, jet_truthlabel_val) in enumerate(tqdm(val_loader)):
             #model.eval()
             if 'all_vs_QCD' in args.loss:
                 jet_truthlabel_val = jet_truthlabel_val[:,:-1]      
             if (args.test_run and istep>10 ): break
             x_pf_val = torch.nan_to_num(x_pf_val,nan=0.,posinf=0.,neginf=0.)
+            x_sv_val = torch.nan_to_num(x_sv_val,nan=0.,posinf=0.,neginf=0.)
             #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
 
             x_pf_val = x_pf_val.to(device)
+            x_sv_val = x_sv_val.to(device)
             jet_features_val = jet_features_val.to(device)
             jet_truthlabel_val = jet_truthlabel_val.to(device)
-            
-            output_val = model(x_pf_val)
+            if args.sv:
+                output_val = model(x_pf_val,x_sv_val)
+            else: 
+                output_val = model(x_pf_val)
             mass = jet_features_val[:,utils._singleton_labels.index('zpr_fj_msd')]
             if 'disco' in args.loss:
                 l_val = loss(output_val, jet_truthlabel_val, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
@@ -292,13 +302,15 @@ def eval_classifier(classifier, training_text, modelName, outdir,
         testingSingletons = []
         batch_size = 1000
 
-        for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(val_loader)):
+        for istep, (x_pf, x_sv, jet_features, jet_truthlabel) in enumerate(tqdm(val_loader)):
             #model.eval()
             if 'all_vs_QCD' in args.loss:
                 jet_truthlabel = jet_truthlabel[:,:-1]      
             if (args.test_run and istep>10 ): break
-
-            predictions.append(nn.Softmax(dim=1)(classifier(x_pf)).cpu().detach().numpy())
+            if args.sv:
+                predictions.append(nn.Softmax(dim=1)(classifier(x_pf,x_sv)).cpu().detach().numpy())
+            else:
+                predictions.append(nn.Softmax(dim=1)(classifier(x_pf)).cpu().detach().numpy())
             testingLabels.append(jet_truthlabel.cpu().detach().numpy())
             testingSingletons.append(jet_features.cpu().detach().numpy())
             torch.cuda.empty_cache()
@@ -450,7 +462,7 @@ elif args.model=='IN_noSV':
 
 elif args.model=='transformer':
 
-    model = models.Transformer(args,"transformer",_softmax,_sigmoid)
+    model = models.Transformer(args,"transformer",_softmax,_sigmoid, args.sv)
 else:
     raise ValueError("Don't understand model ", args.model) 
 model = nn.DataParallel(model)
@@ -467,7 +479,10 @@ outdir = f"./{args.opath}/{model.module.name.replace(' ','_')}"
 outdir = utils.makedir(outdir,args.continue_training)
 
 #with open(outdir+'/model.log', 'w') as sys.stdout:
-summary(model,(100,13))
+if args.sv:
+    summary(model,[(100,13),(5,16)])
+else:
+    summary(model,(100,13))
 #
 #with open(outdir+'/args.log', 'w') as sys.stdout:
 print(args)
