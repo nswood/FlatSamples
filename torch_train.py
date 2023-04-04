@@ -71,8 +71,8 @@ data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files)
 data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
 
 from torch.utils.data import DataLoader
-train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=True,num_workers=4)
-val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=True,num_workers=4)
+train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=True,num_workers=0)
+val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=True,num_workers=0)
 
 assert(args.model)
 if not args.make_PN:
@@ -189,7 +189,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         print(f'Training Epoch {iepoch} on {len(train_loader.dataset)} jets')
         model.train(True)
         for istep, (x_pf, jet_features, jet_truthlabel) in enumerate(tqdm(train_loader)):
-
+            
             if 'all_vs_QCD' in args.loss:
                 jet_truthlabel = jet_truthlabel[:,:-1]
       
@@ -268,7 +268,7 @@ def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,
         torch.cuda.empty_cache()
         #sys.exit(1)
 
-        epoch_patience = 10
+        epoch_patience = 20
         if iepoch > epoch_patience and all(loss_vals_validation[max(0, iepoch - epoch_patience):iepoch] > min(np.append(loss_vals_validation[0:max(0, iepoch - epoch_patience)], 200))):
             print('Early Stopping...')
 

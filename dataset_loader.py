@@ -58,4 +58,4 @@ class zpr_loader(Dataset):
             y = torch.FloatTensor(np.array(f['jet_truthlabel'][idx_in_file],dtype=np.float32))
             x_jet = torch.FloatTensor(np.array(f['jet_features'][idx_in_file],dtype=np.float32))
 
-            return {"x_pf":x_pf, "x_jet": x_jet, "y":y}
+            return x_pf, x_jet, y #{"x_pf":x_pf, "x_jet": x_jet, "y":y}
