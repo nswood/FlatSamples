@@ -15,16 +15,24 @@ from transformers.activations import gelu_new
 import math
 VERBOSE=False
 class OskarAttention(BertSelfAttention):
-    def __init__(self, config):
+    def __init__(self, config, isSV=False):
         super().__init__(config)
-
+        self.isSV = isSV
         self.output_attentions = config.output_attentions
         self.num_attention_heads = config.num_attention_heads
-        self.hidden_size = config.hidden_size
-        self.attention_head_size = config.hidden_size // config.num_attention_heads
-        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+
+        if isSV:
+            self.hidden_size = int(config.hidden_size/2)
+            self.attention_head_size = int(config.hidden_size/2) // config.num_attention_heads
+            self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+            self.dense = nn.Linear(int(config.hidden_size/2), int(config.hidden_size/2))
+            self.LayerNorm = nn.LayerNorm(int(config.hidden_size/2), eps=config.layer_norm_eps)
+        else:
+            self.hidden_size = config.hidden_size
+            self.attention_head_size = config.hidden_size // config.num_attention_heads
+            self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+            self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+            self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.pruned_heads = set()
         self.attention_band = config.attention_band
     def prune_heads(self, heads):
@@ -51,6 +59,7 @@ class OskarAttention(BertSelfAttention):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(self, input_ids, attention_mask=None, head_mask=None):
+        #print(input_ids) 
         mixed_query_layer = self.query(input_ids)
         mixed_key_layer = self.key(input_ids)
         mixed_value_layer = self.value(input_ids)
@@ -105,6 +114,7 @@ class OskarAttention(BertSelfAttention):
 
         else:
             # Take the dot product between "query" and "key" to get the raw attention scores.
+            #print(query_layer, key_layer)
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
             attention_scores = attention_scores / math.sqrt(self.attention_head_size)
             if attention_mask is not None:
@@ -132,7 +142,6 @@ class OskarAttention(BertSelfAttention):
         context_layer = context_layer.contiguous()
 
         # Should find a better way to do this
-
         w = (
             self.dense.weight.t()
             .view(self.num_attention_heads, self.attention_head_size, self.hidden_size)
@@ -147,14 +156,20 @@ class OskarAttention(BertSelfAttention):
 
 
 class OskarLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, isSV):
         super().__init__()
 
         self.config = config
-        self.full_layer_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.attention = OskarAttention(config)
-        self.ffn = nn.Linear(config.hidden_size, config.intermediate_size)
-        self.ffn_output = nn.Linear(config.intermediate_size, config.hidden_size)
+        if isSV:
+            self.full_layer_layer_norm = nn.LayerNorm(int(config.hidden_size/2), eps=config.layer_norm_eps)
+            self.attention = OskarAttention(config, True)
+            self.ffn = nn.Linear(int(config.hidden_size/2), config.intermediate_size)
+            self.ffn_output = nn.Linear(config.intermediate_size, int(config.hidden_size/2))
+        else:
+            self.full_layer_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+            self.attention = OskarAttention(config)
+            self.ffn = nn.Linear(config.hidden_size, config.intermediate_size)
+            self.ffn_output = nn.Linear(config.intermediate_size, config.hidden_size)
         try:
             self.activation = ACT2FN[config.hidden_act]
         except KeyError:
@@ -171,12 +186,12 @@ class OskarLayer(nn.Module):
 
 
 class OskarLayerGroup(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, isSV=False):
         super().__init__()
 
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
-        self.albert_layers = nn.ModuleList([OskarLayer(config) for _ in range(config.inner_group_num)])
+        self.albert_layers = nn.ModuleList([OskarLayer(config,isSV) for _ in range(config.inner_group_num)])
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         layer_hidden_states = ()
@@ -201,13 +216,16 @@ class OskarLayerGroup(nn.Module):
 
 
 class OskarTransformer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config,isSV=False):
         super().__init__()
         self.config = config
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
-        self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, config.hidden_size)
-        self.albert_layer_groups = nn.ModuleList([OskarLayerGroup(config) for _ in range(config.num_hidden_groups)])
+        if isSV:
+            self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, int(config.hidden_size/2))
+        else:
+            self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, config.hidden_size)
+        self.albert_layer_groups = nn.ModuleList([OskarLayerGroup(config,isSV) for _ in range(config.num_hidden_groups)])
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         hidden_states = self.embedding_hidden_mapping_in(hidden_states)
@@ -268,28 +286,33 @@ class Transformer(nn.Module):
             self.input_bn_sv = nn.BatchNorm1d(config.feature_sv_size)
             self.embedder_sv = nn.Linear(config.feature_sv_size, config.embedding_size)
             self.final_embedder_sv = nn.ModuleList([
-                nn.Linear(config.n_out_nodes*2, int(config.n_out_nodes)),
+                nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes*2)),
+                nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes*4)),
+                nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*4)),
+                nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*2)),
+                nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes)),
                 nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes)),
                 nn.Linear(int(config.n_out_nodes), config.nclasses),
             ])
            
             self.embed_bn_sv = nn.BatchNorm1d(config.embedding_size)
     
-            self.encoders_sv = nn.ModuleList([OskarTransformer(config) for _ in range(config.num_encoders)])
+            self.encoders_sv = nn.ModuleList([OskarTransformer(config,False) for _ in range(config.num_encoders)])
             self.decoders_sv = nn.ModuleList([
-                                           nn.Linear(config.hidden_size, config.hidden_size),
-                                           nn.Linear(config.hidden_size, config.hidden_size),
-                                           nn.Linear(config.hidden_size, config.n_out_nodes)
+                                           nn.Linear(int(config.hidden_size), int(config.hidden_size)),
+                                           nn.Linear(int(config.hidden_size), int(config.hidden_size)),
+                                           nn.Linear(int(config.hidden_size), int(config.n_out_nodes))
                                            ])
     
     
     
-            self.decoder_bn_sv = nn.ModuleList([nn.BatchNorm1d(config.hidden_size) for _ in self.decoders_sv[:-1]])
-        self.final_embedder = nn.ModuleList([
-            nn.Linear(config.n_out_nodes, int(config.n_out_nodes/2)),
-            nn.Linear(int(config.n_out_nodes/2), int(config.n_out_nodes/4)),
-            nn.Linear(int(config.n_out_nodes/4), config.nclasses),
-        ])
+            self.decoder_bn_sv = nn.ModuleList([nn.BatchNorm1d(int(config.hidden_size)) for _ in self.decoders_sv[:-1]])
+        else:
+            self.final_embedder = nn.ModuleList([
+                nn.Linear(config.n_out_nodes, int(config.n_out_nodes/2)),
+                nn.Linear(int(config.n_out_nodes/2), int(config.n_out_nodes/4)),
+                nn.Linear(int(config.n_out_nodes/4), config.nclasses),
+            ])
 
 
         self.embed_bn = nn.BatchNorm1d(config.embedding_size)
@@ -337,9 +360,10 @@ class Transformer(nn.Module):
         else:
             attn_mask = mask.unsqueeze(1).unsqueeze(2) # [B, P] -> [B, 1, P, 1]
 
-
+        print(x)
         attn_mask = (1 - attn_mask) * -1e9
-
+        if self.config.mname:
+            attn_mask = attn_mask.to(torch.device("cpu"))
         head_mask = [None] * self.config.num_hidden_layers
 
         x = self.input_bn(x.permute(0, 2, 1)).permute(0, 2, 1)
@@ -347,7 +371,11 @@ class Transformer(nn.Module):
         h = self.embedder(x)
         h = torch.relu(h)
         h = self.embed_bn(h.permute(0, 2, 1)).permute(0, 2, 1)
+        #print("h",h.shape)
+        #print("attn_mask",attn_mask.shape)
+        #print("head_mask",head_mask.shape)
         for e in self.encoders:
+            print(h,attn_mask,head_mask)
             h = e(h, attn_mask, head_mask)[0]
         h = self.decoders[0](h)
         h = self.relu(h)
@@ -376,7 +404,9 @@ class Transformer(nn.Module):
             j = self.embedder_sv(x)
             j = torch.relu(j)
             j = self.embed_bn_sv(j.permute(0, 2, 1)).permute(0, 2, 1)
-
+            #print("j",j.shape)
+            #print("attn_sv_mask",attn_sv_mask.shape)
+            #print("head_sv_mask",head_sv_mask.shape)
             for e in self.encoders_sv:
                 j = e(j, attn_sv_mask, head_sv_mask)[0]
             j = self.decoders_sv[0](j)
@@ -391,15 +421,22 @@ class Transformer(nn.Module):
             j = torch.mean(j,dim=1)
 
             #print("h",h)
-            #print("h.shape",h.shape)
+            ##print("h.shape",h.shape)
             #print("j",j)
             #print("j.sjape",j.shape)
             h = torch.cat((h,j),dim=1)
+            #print("hafter",h)
+            #print("hafter.shape",h.shape)
             h = self.final_embedder_sv[0](h)
             h = self.final_embedder_sv[1](h)
             h = self.final_embedder_sv[2](h)
+            h = self.final_embedder_sv[3](h)
+            h = self.final_embedder_sv[4](h)
+            h = self.final_embedder_sv[5](h)
+            h = self.final_embedder_sv[6](h)
 
         else:
+            #print("should not print!")
             h = self.final_embedder[0](h)
             h = self.final_embedder[1](h)
             h = self.final_embedder[2](h)
@@ -408,6 +445,7 @@ class Transformer(nn.Module):
             h = nn.Softmax(dim=1)(h)
         if self.sigmoid:
             h = nn.Sigmoid()(h)
+        #sys.exit(1)
         return h
 
 

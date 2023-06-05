@@ -25,6 +25,11 @@ class zpr_loader(Dataset):
 
     def fill_data(self):
         print("Reading files...")
+        self.data_features = []
+        self.data_sv_features = [] 
+        self.data_jetfeatures = []
+        self.data_truthlabel = [] 
+
         for fi,path in enumerate(tqdm.tqdm(self.raw_paths)):
             with h5py.File(path, 'r') as f:
 
@@ -32,20 +37,37 @@ class zpr_loader(Dataset):
                  tmp_sv_features = f['features_SV'][()].astype(np.float32)
                  tmp_jetfeatures = f['jet_features'][()].astype(np.float32)
                  tmp_truthlabel = f['jet_truthlabel'][()]
-                 if fi == 0:
-                     self.data_features = tmp_features
-                     self.data_sv_features = tmp_sv_features
-                     self.data_jetfeatures = tmp_jetfeatures
-                     self.data_truthlabel = tmp_truthlabel
-                 else:
-                     self.data_features = np.concatenate((self.data_features,tmp_features))
-                     self.data_sv_features = np.concatenate((self.data_sv_features,tmp_sv_features))
-                     self.data_jetfeatures = np.concatenate((self.data_jetfeatures,tmp_jetfeatures))
-                     self.data_truthlabel = np.concatenate((self.data_truthlabel,tmp_truthlabel))
+                 self.data_features.append(tmp_features)
+                 self.data_sv_features.append(tmp_sv_features)
+                 self.data_jetfeatures.append(tmp_jetfeatures)
+                 self.data_truthlabel.append(tmp_truthlabel)
+                 #if fi == 0:
+                 #    self.data_features = tmp_features
+                 #    self.data_sv_features = tmp_sv_features
+                 #    self.data_jetfeatures = tmp_jetfeatures
+                 #    self.data_truthlabel = tmp_truthlabel
+                 #else:
+                 #    self.data_features = np.concatenate((self.data_features,tmp_features))
+                 #    self.data_sv_features = np.concatenate((self.data_sv_features,tmp_sv_features))
+                 #    self.data_jetfeatures = np.concatenate((self.data_jetfeatures,tmp_jetfeatures))
+                 #    self.data_truthlabel = np.concatenate((self.data_truthlabel,tmp_truthlabel))
 
-        #self.data_features = torch.cuda.FloatTensor(self.data_features)
-        #self.data_jetfeatures = torch.cuda.FloatTensor(self.data_jetfeatures)
-        #self.data_truthlabel = torch.cuda.FloatTensor(self.data_truthlabel)
+        self.data_features = [item for sublist in self.data_features for item in sublist]
+        self.data_sv_features = [item for sublist in self.data_sv_features for item in sublist]
+        self.data_jetfeatures = [item for sublist in self.data_jetfeatures for item in sublist]
+        self.data_truthlabel = [item for sublist in self.data_truthlabel for item in sublist]
+
+        self.data_features = np.array(self.data_features)
+        self.data_sv_features = np.array(self.data_sv_features)
+        self.data_jetfeatures = np.array(self.data_jetfeatures)
+        self.data_truthlabel = np.array(self.data_truthlabel)
+
+        print("self.data_features.shape",self.data_features.shape)
+     
+        self.data_features = torch.cuda.FloatTensor(self.data_features)
+        self.data_sv_features = torch.cuda.FloatTensor(self.data_sv_features)
+        self.data_jetfeatures = torch.cuda.FloatTensor(self.data_jetfeatures)
+        self.data_truthlabel = torch.cuda.FloatTensor(self.data_truthlabel)
     @property
     def raw_file_names(self):
         raw_files = sorted(glob.glob(osp.join(self.raw_dir, '*.h5')))
