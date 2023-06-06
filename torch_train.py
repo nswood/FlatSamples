@@ -40,6 +40,7 @@ except RuntimeError:
 
 p = utils.ArgumentParser()
 p.add_args(
+    ('--mname', p.STR),
     ('--loss', p.STR), ('--model', p.STR), ('--nepochs', p.INT),
     ('--ipath', p.STR), ('--vpath', p.STR), ('--opath', p.STR),
     ('--mpath', p.STR), ('--continue_training', p.STORE_TRUE), ('--sv', p.STORE_TRUE),
@@ -494,7 +495,7 @@ def main():
         summary(model,[(100,13),(5,16)])
     else:
         summary(model,(100,13))
-    print(model)
+    #print(model)
     model = nn.DataParallel(model)
     #torch.cuda.set_device(0)
     #torch.cuda.set_device(1)
@@ -510,7 +511,7 @@ def main():
     #with open(outdir+'/model.log', 'w') as sys.stdout:
     #
     #with open(outdir+'/args.log', 'w') as sys.stdout:
-    print(args)
+    #print(args)
     
     if args.mpath:
         if args.continue_training:

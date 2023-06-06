@@ -265,7 +265,7 @@ class OskarTransformer(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, config, name, softmax, sigmoid,sv_branch=False):
         super().__init__()
-        print(config)
+        #print(config)
         self.relu = gelu_new #nn.ReLU() 
         self.tanh = nn.Tanh()
         self.name = name
@@ -360,9 +360,9 @@ class Transformer(nn.Module):
         else:
             attn_mask = mask.unsqueeze(1).unsqueeze(2) # [B, P] -> [B, 1, P, 1]
 
-        print(x)
+        #print(x)
         attn_mask = (1 - attn_mask) * -1e9
-        if self.config.mname:
+        if self.config.mname is not None:
             attn_mask = attn_mask.to(torch.device("cpu"))
         head_mask = [None] * self.config.num_hidden_layers
 
@@ -375,7 +375,7 @@ class Transformer(nn.Module):
         #print("attn_mask",attn_mask.shape)
         #print("head_mask",head_mask.shape)
         for e in self.encoders:
-            print(h,attn_mask,head_mask)
+            #print(h,attn_mask,head_mask)
             h = e(h, attn_mask, head_mask)[0]
         h = self.decoders[0](h)
         h = self.relu(h)
