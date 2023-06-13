@@ -1,0 +1,1 @@
+slurmstepd: error: execve(): bad interpreter(/work/tier3/nswood/zprlegacy/FlatSamples_dev/sh): No such file or directory
