@@ -5,7 +5,6 @@ import h5py
 import json
 #import setGPU
 import sklearn
-import numpy.random as random
 import corner
 import builtins
 import scipy
@@ -81,7 +80,6 @@ p.add_args(
 #DDP Congigs
 p.add_argument('--gpu', default=None, type=int)
 p.add_argument('--device', default='cuda', help='device')
-
 p.add_argument('--world-size', default=-1, type=int, 
                         help='number of nodes for distributed training')
 p.add_argument('--rank', default=-1, type=int, 
@@ -92,23 +90,22 @@ p.add_argument('--dist-backend', default='nccl', type=str,
                     help='distributed backend')
 p.add_argument('--local_rank', default=-1, type=int, 
                     help='local rank for distributed training')
-p.add_argument('-j', '--workers', default=2, type=int, metavar='N',
-                        help='number of data loading workers (default: 16)')
 
+p.add_argument('-j', '--workers', default=16, type=int, metavar='N',
+                        help='number of data loading workers (default: 16)')
 args = p.parse_args()
 
 args.nparts = 100
 
 
 def main():
-    if "WORLD_SIZE" in os.environ:
-        args.world_size = int(os.environ["WORLD_SIZE"])
-    args.distributed = args.world_size > 1
-    ngpus_per_node = torch.cuda.device_count()
-    dist.init_process_group("nccl")
-    rank = dist.get_rank()
+#     utils.init_distributed_mode(args)
+    print(args)
     
     device = torch.device(args.device)
+    
+    if args.distributed and args.sync_bn:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     
     if args.distributed:
         if args.local_rank != -1: # for torch.distributed.launch
@@ -199,12 +196,12 @@ def main():
         utils.plot_features(singletonFeatureData,labels,utils._singleton_features_labels,args.opath)
     
     
-    def run_inference(opath, plot_text, modelName, figpath, model,device):#, particleDataTest, labelsTest, singletonDataTest, svTestingData=None, eventTestingData=None, pfMaskTestingData=None, svMaskTestingData=None):    
+    def run_inference(opath, plot_text, modelName, figpath, model):#, particleDataTest, labelsTest, singletonDataTest, svTestingData=None, eventTestingData=None, pfMaskTestingData=None, svMaskTestingData=None):    
         model.load_state_dict(torch.load(args.mpath))
-        eval_classifier(model, plot_text, modelName, figpath, device)#particleDataTest, labelsTest, singletonDataTest,svTestingData=vertexDataTest,eventTestingData=eventTestingData,pfMaskTestingData=pfMaskTestingData,svMaskTestingData=svMaskTestingData,)
+        eval_classifier(model, plot_text, modelName, figpath, )#particleDataTest, labelsTest, singletonDataTest,svTestingData=vertexDataTest,eventTestingData=eventTestingData,pfMaskTestingData=pfMaskTestingData,svMaskTestingData=svMaskTestingData,)
         return
     
-    def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,train_loader,device
+    def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,train_loader
         #particleTrainingData, particleValidationData,  trainingLabels, validationLabels,
         #jetMassTrainingData=None, jetMassValidationData=None,
         #encoder=None,n_Dim=None, CorrDim=None, 
@@ -218,20 +215,21 @@ def main():
 #         device_id = rank % torch.cuda.device_count()
 #         model = model.to(device_id)
 #         model = DDP(model, device_ids=[device_id])
-        np.random.seed(nepochs)
-        random.seed(nepochs)
+        np.random.seed(epoch)
+        random.seed(epoch)
         
         optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     
-        if args.distributed: 
-            train_loader.sampler.set_epoch(nepochs)
-        #train_loader = train_loader.cuda()
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
+            
+        train_loader = train_loader.cuda()
         loss_vals_training = np.zeros(nepochs)
         loss_vals_validation = np.zeros(nepochs)
         acc_vals_training = np.zeros(nepochs)
         acc_vals_validation = np.zeros(nepochs)   
     
-        accuracy = Accuracy().to(device)
+        accuracy = Accuracy().to(device_id)
         model_dir = outdir
         os.system("mkdir -p ./"+model_dir)
         n_massbins = 20
@@ -261,10 +259,10 @@ def main():
                     param.grad = None
                 #optimizer.zero_grad()
                 if not args.load_gpu:
-                    x_pf = x_pf.to(device)
-                    x_sv = x_sv.to(device)
-                    jet_features = jet_features.to(device)
-                    jet_truthlabel = jet_truthlabel.to(device)
+                    x_pf = x_pf.to(device_id)
+                    x_sv = x_sv.to(device_id)
+                    jet_features = jet_features.to(device_id)
+                    jet_truthlabel = jet_truthlabel.to(device_id)
                 if args.sv:
                     output = model(x_pf,x_sv)
                 else:
@@ -272,7 +270,7 @@ def main():
                 #sys.exit(1)
                 mass = jet_features[:,utils._singleton_labels.index('zpr_fj_msd')]
                 if args.loss == 'jsd':
-                    l = loss(output, jet_truthlabel, one_hots[istep*batchSize:(istep+1)*batchSize].to(device), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
+                    l = loss(output, jet_truthlabel, one_hots[istep*batchSize:(istep+1)*batchSize].to(device_id), n_massbins=n_massbins, LAMBDA_ADV=args.LAMBDA_ADV)
                 elif 'disco' in args.loss:
                     #print(mass[:10])
                     l = loss(output, jet_truthlabel, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
@@ -300,10 +298,10 @@ def main():
                     #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
 
                     if not args.load_gpu:
-                        x_pf_val = x_pf_val.to(device)
-                        x_sv_val = x_sv_val.to(device)
-                        jet_features_val = jet_features_val.to(device)
-                        jet_truthlabel_val = jet_truthlabel_val.to(device)
+                        x_pf_val = x_pf_val.to(device_id)
+                        x_sv_val = x_sv_val.to(device_id)
+                        jet_features_val = jet_features_val.to(device_id)
+                        jet_truthlabel_val = jet_truthlabel_val.to(device_id)
                     if args.sv:
                         output_val = model(x_pf_val,x_sv_val)
                     else: 
@@ -456,7 +454,7 @@ def main():
     masksvTest = None
     
     if args.model =='DNN':
-        model = models.DNN("DNN",particleDataTrain.shape[1]*particleDataTrain.shape[2],labelsTrain.shape[1]).to(device)
+        model = models.DNN("DNN",particleDataTrain.shape[1]*particleDataTrain.shape[2],labelsTrain.shape[1]).to(device_id)
     
     elif args.model=='PN': 
     
@@ -536,13 +534,12 @@ def main():
         model = models.Transformer(args,"transformer",_softmax,_sigmoid, args.sv)
     else:
         raise ValueError("Don't understand model ", args.model) 
-    outdir = f"./{args.opath}/{model.name.replace(' ','_')}"
-    outdir = utils.makedir(outdir,args.continue_training)
     
-    
+    model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
-    model = model.to(device)
+        model_without_ddp = model.module
+        
     if args.sv:
         summary(model,[(100,13),(5,16)])
     else:
@@ -552,7 +549,8 @@ def main():
 #         pass
     
       
-    
+    outdir = f"./{args.opath}/{model.module.name.replace(' ','_')}"
+    outdir = utils.makedir(outdir,args.continue_training)
     
     #GET DATA
     from torch.utils.data import DataLoader
@@ -585,7 +583,6 @@ def main():
             num_workers=args.workers, pin_memory=True, sampler=val_sampler, drop_last=True)
     
     
-    
     #TRAINING NOW
     torch.backends.cudnn.benchmark = True
     if args.mpath:
@@ -593,35 +590,35 @@ def main():
             #models = sorted(glob.glob(outdir+"/models/"),key = lambda x:datetime.strptime(x[0], '%d-%m-%Y'))
             #print(models)
             #sys.exit(1)
-            model = train_classifier(model, loss, batchsize, n_epochs, model.name, "/".join(args.mpath.split("/")[:-1],train_loader,device),
+            model = train_classifier(model, loss, batchsize, n_epochs, model.module.name, "/".join(args.mpath.split("/")[:-1],train_loader),
             )
         else:
-            run_inference(args.mpath, args.plot_text, model.name, args.mpath+"_plots",val_loader,
-                      model,device, #particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,
+            run_inference(args.mpath, args.plot_text, model.module.name, args.mpath+"_plots",val_loader,
+                      model, #particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,
                       #pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,
             )
     
     else: 
-        model = train_classifier(model, loss, batchsize, n_epochs, model.name, outdir+"/models/", train_loader,device
+        model = train_classifier(model, loss, batchsize, n_epochs, model.module.name, outdir+"/models/", train_loader
                                  #particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0],
                                  #jetMassValidationData=singletonDataVal[:,0],
                                  #svTrainingData=vertexDataTrain, svValidationData=vertexDataVal,
                                  #eventTrainingData=singletonFeatureDataTrain, eventValidationData=singletonFeatureDataVal,
                                  #maskpfTrain=maskpfTrain, maskpfVal=maskpfVal, masksvTrain=masksvTrain, masksvVal=masksvVal,
         )
-        eval_classifier(model, args.plot_text, model.name, outdir+"/plots/",val_loader,device)#particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,) 
+        eval_classifier(model, args.plot_text, model.module.name, outdir+"/plots/",val_loader )#particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,pfMaskTestingData=maskpfTest,svMaskTestingData=masksvTest,) 
     
     if args.run_captum:
         from captum.attr import IntegratedGradients
         model.eval()
         torch.manual_seed(123)
         np.random.seed(123)
-        baseline = torch.zeros(1,particleDataTrain.shape[1],particleDataTrain.shape[2]).to(device)
-        baselineSV = torch.zeros(1,vertexDataTrain.shape[1],vertexDataTrain.shape[2]).to(device)
-        baselineE  = torch.zeros(1,singletonFeatureDataTrain.shape[1]).to(device)
-        inputs = torch.rand(1,particleDataTrain.shape[1],particleDataTrain.shape[2]).to(device)
-        inputsSV = torch.rand(1,vertexDataTrain.shape[1],vertexDataTrain.shape[2]).to(device)
-        inputsE = torch.rand(1,singletonFeatureDataTrain.shape[1]).to(device)
+        baseline = torch.zeros(1,particleDataTrain.shape[1],particleDataTrain.shape[2]).to(device_id)
+        baselineSV = torch.zeros(1,vertexDataTrain.shape[1],vertexDataTrain.shape[2]).to(device_id)
+        baselineE  = torch.zeros(1,singletonFeatureDataTrain.shape[1]).to(device_id)
+        inputs = torch.rand(1,particleDataTrain.shape[1],particleDataTrain.shape[2]).to(device_id)
+        inputsSV = torch.rand(1,vertexDataTrain.shape[1],vertexDataTrain.shape[2]).to(device_id)
+        inputsE = torch.rand(1,singletonFeatureDataTrain.shape[1]).to(device_id)
      
         ig = IntegratedGradients(model)
         os.system("mkdir -p "+outdir+"/captum/")
