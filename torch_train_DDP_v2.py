@@ -76,8 +76,8 @@ p.add_args(
     ('--pt_weight', p.STORE_TRUE), ('--num_max_files', p.INT),
     ('--num_max_particles', p.INT), ('--dr_adj', p.FLOAT),
     ('--beta', p.STORE_TRUE), ('--load_gpu', p.STORE_TRUE),
-    ('--lr_policy'), ('--grad_acc', p.INT),
-)
+    ('--lr_policy'), ('--grad_acc', p.INT), ('--pretrain', p.STORE_TRUE))
+
 #DDP Congigs
 p.add_argument('--gpu', default=None, type=int)
 p.add_argument('--device', default='cuda', help='device')
@@ -204,7 +204,7 @@ def main():
         eval_classifier(model, plot_text, modelName, figpath, device)#particleDataTest, labelsTest, singletonDataTest,svTestingData=vertexDataTest,eventTestingData=eventTestingData,pfMaskTestingData=pfMaskTestingData,svMaskTestingData=svMaskTestingData,)
         return
     
-    def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,train_loader,device
+    def train_classifier(classifier, loss, batchSize, nepochs, modelName, outdir,train_loader,val_loader,device
         #particleTrainingData, particleValidationData,  trainingLabels, validationLabels,
         #jetMassTrainingData=None, jetMassValidationData=None,
         #encoder=None,n_Dim=None, CorrDim=None, 
@@ -289,36 +289,36 @@ def main():
                 #del , output
             print(f'Validating Epoch {iepoch} on {len(val_loader.dataset)} jets')
             model.train(False)
-            if args.rank == 0:
-                for istep, (x_pf_val, x_sv_val, jet_features_val, jet_truthlabel_val) in enumerate(tqdm(val_loader)):
-                    #model.eval()
-                    if 'all_vs_QCD' in args.loss:
-                        jet_truthlabel_val = jet_truthlabel_val[:,:-1]      
-                    if (args.test_run and istep>10 ): break
-                    x_pf_val = torch.nan_to_num(x_pf_val,nan=0.,posinf=0.,neginf=0.)
-                    x_sv_val = torch.nan_to_num(x_sv_val,nan=0.,posinf=0.,neginf=0.)
-                    #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
+            #if args.rank == 0:
+            for istep, (x_pf_val, x_sv_val, jet_features_val, jet_truthlabel_val) in enumerate(tqdm(val_loader)):
+                #model.eval()
+                if 'all_vs_QCD' in args.loss:
+                    jet_truthlabel_val = jet_truthlabel_val[:,:-1]      
+                if (args.test_run and istep>10 ): break
+                x_pf_val = torch.nan_to_num(x_pf_val,nan=0.,posinf=0.,neginf=0.)
+                x_sv_val = torch.nan_to_num(x_sv_val,nan=0.,posinf=0.,neginf=0.)
+                #x_sv = torch.nan_to_num(x_pf,nan=0.,posinf=0.,neginf=0.)
 
-                    if not args.load_gpu:
-                        x_pf_val = x_pf_val.to(device)
-                        x_sv_val = x_sv_val.to(device)
-                        jet_features_val = jet_features_val.to(device)
-                        jet_truthlabel_val = jet_truthlabel_val.to(device)
-                    if args.sv:
-                        output_val = model(x_pf_val,x_sv_val)
-                    else: 
-                        output_val = model(x_pf_val)
-                    mass = jet_features_val[:,utils._singleton_labels.index('zpr_fj_msd')]
-                    if 'disco' in args.loss:
-                        l_val = loss(output_val, jet_truthlabel_val, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
-                    else:
-                        l_val = loss(output_val, jet_truthlabel_val)
-                    #print(istep,l_val.item())
-                    loss_validation.append(l_val.item())
-                    acc_validation.append(accuracy(output_val,torch.argmax(jet_truthlabel_val.squeeze(), dim=1)).cpu().detach().numpy())
+                if not args.load_gpu:
+                    x_pf_val = x_pf_val.to(device)
+                    x_sv_val = x_sv_val.to(device)
+                    jet_features_val = jet_features_val.to(device)
+                    jet_truthlabel_val = jet_truthlabel_val.to(device)
+                if args.sv:
+                    output_val = model(x_pf_val,x_sv_val)
+                else: 
+                    output_val = model(x_pf_val)
+                mass = jet_features_val[:,utils._singleton_labels.index('zpr_fj_msd')]
+                if 'disco' in args.loss:
+                    l_val = loss(output_val, jet_truthlabel_val, mass, LAMBDA_ADV=args.LAMBDA_ADV,)
+                else:
+                    l_val = loss(output_val, jet_truthlabel_val)
+                #print(istep,l_val.item())
+                loss_validation.append(l_val.item())
+                acc_validation.append(accuracy(output_val,torch.argmax(jet_truthlabel_val.squeeze(), dim=1)).cpu().detach().numpy())
 
-                    torch.cuda.empty_cache()
-                    #break
+                torch.cuda.empty_cache()
+                #break
     
             epoch_val_loss = np.mean(loss_validation)
             epoch_val_acc  = np.mean(acc_validation)
@@ -333,7 +333,7 @@ def main():
             acc_vals_validation[iepoch]  = epoch_val_acc
             loss_vals_training[iepoch] = epoch_train_loss
             acc_vals_training[iepoch]  = epoch_train_acc
-    
+            
             torch.save(classifier.state_dict(), 
                 "{}/epoch_{}_{}_loss_{}_{}_acc_{}_{}.pth".format(model_dir,iepoch,modelName.replace(' ','_'),round(loss_vals_training[iepoch],4),round(loss_vals_validation[iepoch],4),round(acc_vals_training[iepoch],4),round(acc_vals_validation[iepoch],4))
             )
@@ -354,13 +354,13 @@ def main():
         return classifier
     #END OF TRAINING
     
-    def eval_classifier(classifier, training_text, modelName, outdir,val_loader
+    def eval_classifier(classifier, training_text, modelName, outdir,val_loader,device
                         #particleTestingData, testingLabels, testingSingletons,
                         #svTestingData=None,eventTestingData=None,encoder=None,pfMaskTestingData=None,svMaskTestingData=None):
         ):
         
         
-        val_loader = val_loader.cuda()
+#         val_loader = val_loader.to(device)
         #classifier.eval()  
         with torch.no_grad():
             print("Running predictions on test data")
@@ -371,6 +371,10 @@ def main():
     
             for istep, (x_pf, x_sv, jet_features, jet_truthlabel) in enumerate(tqdm(val_loader)):
                 #model.eval()
+                x_pf = x_pf.to(device)
+                x_sv = x_sv.to(device)
+                jet_features = jet_features.to(device)
+                jet_truthlabel = jet_truthlabel.to(device)
                 if 'all_vs_QCD' in args.loss:
                     jet_truthlabel = jet_truthlabel[:,:-1]      
                 if (args.test_run and istep>10 ): break
@@ -483,7 +487,7 @@ def main():
         masksvTrain = np.expand_dims(masksvTrain,axis=-1)
         masksvVal = np.expand_dims(masksvVal,axis=-1)
         masksvTest = np.expand_dims(masksvTest,axis=-1)
-    
+ 
         maskpfTrain = np.swapaxes(maskpfTrain,1,2)
         maskpfVal = np.swapaxes(maskpfVal,1,2)
         maskpfTest = np.swapaxes(maskpfTest,1,2)
@@ -566,8 +570,8 @@ def main():
         val_sampler = None
         if not args.mpath or (args.mpath and args.continue_training):
             train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
-            
+            num_workers=args.workers, sampler=train_sampler, drop_last=True)
+                
         val_loader = DataLoader(data_val, batch_size=args.batchsize,shuffle=True,)
     else:
         from dataset_loader import zpr_loader
@@ -586,6 +590,32 @@ def main():
     
     
     
+    #Pre train Transformer model 
+    if args.pretrain and args.model=='transformer':
+        import pretrain_utils
+        def round_to_nearest_even(number):
+            rounded_number = round(number)
+            if rounded_number % 2 != 0:  # Check if the rounded number is odd
+                rounded_number += 1      # Increment by 1 to make it even
+            return rounded_number
+
+        pre_train_loader = pretrain_utils.gen_matched_data(data_train,round_to_nearest_even(len(data_train)/2),
+                                                          batch_size=args.batchsize,
+                                                           shuffle=(train_sampler is None),
+                                                           num_workers=args.workers,
+                                                           pin_memory=True,
+                                                           sampler=train_sampler,
+                                                           drop_last=True)
+        pre_val_loader = pretrain_utils. gen_matched_data(data_val,round_to_nearest_even(len(data_val)/2),
+                                                         batch_size=args.batchsize,
+                                                          shuffle=(val_sampler is None),
+                                                          num_workers=args.workers,
+                                                          pin_memory=True,
+                                                          sampler=val_sampler,
+                                                          drop_last=True)
+        
+        
+    
     #TRAINING NOW
     torch.backends.cudnn.benchmark = True
     if args.mpath:
@@ -593,7 +623,7 @@ def main():
             #models = sorted(glob.glob(outdir+"/models/"),key = lambda x:datetime.strptime(x[0], '%d-%m-%Y'))
             #print(models)
             #sys.exit(1)
-            model = train_classifier(model, loss, batchsize, n_epochs, model.name, "/".join(args.mpath.split("/")[:-1],train_loader,device),
+            model = train_classifier(model, loss, batchsize, n_epochs, model.name, "/".join(args.mpath.split("/")[:-1],train_loader,val_loader,device),
             )
         else:
             run_inference(args.mpath, args.plot_text, model.name, args.mpath+"_plots",val_loader,
@@ -602,7 +632,7 @@ def main():
             )
     
     else: 
-        model = train_classifier(model, loss, batchsize, n_epochs, model.name, outdir+"/models/", train_loader,device
+        model = train_classifier(model, loss, batchsize, n_epochs, model.name, outdir+"/models/", train_loader,val_loader,device
                                  #particleDataTrain, particleDataVal, labelsTrain, labelsVal, jetMassTrainingData=singletonDataTrain[:,0],
                                  #jetMassValidationData=singletonDataVal[:,0],
                                  #svTrainingData=vertexDataTrain, svValidationData=vertexDataVal,
