@@ -1,20 +1,8 @@
 #!/bin/sh
-### e.g. request 4 nodes with 1 gpu each, totally 4 gpus (WORLD_SIZE==4)
-### Note: --gres=gpu:x should equal to ntasks-per-node
-
-
-#SBATCH --job-name=exp_1080
-#SBATCH --output=res_gpu1080_%j.txt
-#SBATCH --error=err_gpu1080_%j.txt
-#
-#SBATCH --ntasks=1
-#SBATCH --time=10:00
-#SBATCH --mem-per-cpu=100
-#SBATCH --partition=submit-gpu1080
-#SBATCH --gres=gpu:2
-#SBATCH --cpus-per-gpu=2
-
-
+#SBATCH -c 8 # Number of threads
+#SBATCH -t 0-00:30:00 # Amount of time needed DD-HH:MM:SS
+#SBATCH -p shared # Partition to submit to
+#SBATCH --mem-per-cpu=100 #Memory per cpu
 ### change 5-digit MASTER_PORT as you wish, slurm will raise Error if duplicated with others
 ### change WORLD_SIZE as gpus/node * num_nodes
 export MASTER_PORT=12340
