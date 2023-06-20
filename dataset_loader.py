@@ -19,12 +19,12 @@ class zpr_loader(Dataset):
         self.strides = np.cumsum(self.strides)
         
     def fill_data(self):
-        print("Reading files...")
+        
         self.data_features = []
         self.data_sv_features = [] 
         self.data_jetfeatures = []
         self.data_truthlabel = [] 
-        print(self.raw_paths)
+        
         for fi,path in enumerate(tqdm.tqdm(self.raw_paths)):
             with h5py.File(path, 'r') as f:
                 

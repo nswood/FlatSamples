@@ -101,15 +101,17 @@ args.nparts = 100
 
 
 def main():
+    print(torch.cuda.device_count())
     if "WORLD_SIZE" in os.environ:
         args.world_size = int(os.environ["WORLD_SIZE"])
     args.distributed = args.world_size > 1
     ngpus_per_node = torch.cuda.device_count()
-    dist.init_process_group("nccl")
-    rank = dist.get_rank()
-    
-    device = torch.device(args.device)
-    
+    print('before')
+    #dist.init_process_group("nccl")
+    args.rank = int(os.environ.get("RANK", -1))
+    args.gpu = args.rank % torch.cuda.device_count()
+    #device = torch.device(args.device)
+    '''
     if args.distributed:
         if args.local_rank != -1: # for torch.distributed.launch
             args.rank = args.local_rank
@@ -118,7 +120,13 @@ def main():
             args.rank = int(os.environ['SLURM_PROCID'])
             args.gpu = args.rank % torch.cuda.device_count()
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,world_size=args.world_size, rank=args.rank)
-    
+    '''
+    print(args.dist_backend)
+    print(args.dist_url)
+    print(args.world_size)
+    print(args.rank)
+    dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.rank)
+    print('here')
     if args.rank!=0:
         def print_pass(*args):
             pass
@@ -543,10 +551,10 @@ def main():
     outdir = f"./{args.opath}/{model.name.replace(' ','_')}"
     outdir = utils.makedir(outdir,args.continue_training)
     
-    
+    model = model.to(args.gpu)
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
-    model = model.to(device)
+    
     if args.sv:
         summary(model,[(100,13),(5,16)])
     else:
@@ -557,7 +565,7 @@ def main():
     
       
     
-    
+    print('loaded model')
     #GET DATA
     from torch.utils.data import DataLoader
     if args.load_gpu:
@@ -578,6 +586,7 @@ def main():
         if not args.mpath or (args.mpath and args.continue_training):
             data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
             train_sampler = torch.utils.data.distributed.DistributedSampler(data_train, shuffle=True)
+            
         data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
         val_sampler = None
         if not args.mpath or (args.mpath and args.continue_training):
@@ -623,8 +632,8 @@ def main():
             #models = sorted(glob.glob(outdir+"/models/"),key = lambda x:datetime.strptime(x[0], '%d-%m-%Y'))
             #print(models)
             #sys.exit(1)
-            model = train_classifier(model, loss, batchsize, n_epochs, model.name, "/".join(args.mpath.split("/")[:-1],train_loader,val_loader,device),
-            )
+            model = train_classifier(model, loss, batchsize, n_epochs, model.name, "/".join(args.mpath.split("/")[:-1]),train_loader,val_loader,device)
+            
         else:
             run_inference(args.mpath, args.plot_text, model.name, args.mpath+"_plots",val_loader,
                       model,device, #particleDataTest, labelsTest, singletonDataTest, svTestingData=vertexDataTest, eventTestingData=singletonFeatureDataTest,

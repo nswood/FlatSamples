@@ -18,13 +18,13 @@ class zpr_loader(Dataset):
         #self.calculate_offsets()
     def calculate_offsets(self):
         for path in self.raw_paths:
-            print(path)
+            
             with h5py.File(path, 'r') as f:
                 self.strides.append(f['features'].shape[0])
         self.strides = np.cumsum(self.strides)
 
     def fill_data(self):
-        print("Reading files...")
+       
         self.data_features = []
         self.data_sv_features = [] 
         self.data_jetfeatures = []
