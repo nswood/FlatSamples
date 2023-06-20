@@ -69,7 +69,10 @@ class Trainer:
         self.loss_vals_validation = np.zeros(max_epochs)
         self.acc_vals_training = np.zeros(max_epochs)
         self.acc_vals_validation = np.zeros(max_epochs)
-        self.name = self.model.name
+        if args.mname == None:
+            self.name = self.model.name
+        else:
+            self.name = args.mname
         
 #         if os.path.exists(snapshot_path):
 #             print("Loading snapshot")
@@ -108,7 +111,7 @@ class Trainer:
         x_sv = torch.nan_to_num(x_sv,nan=0.,posinf=0.,neginf=0.)
         for param in self.model.parameters():
             param.grad = None
-        #optimizer.zero_grad()
+        
         if not self.args.load_gpu:
             x_pf = x_pf.to(self.gpu_id)
             x_sv = x_sv.to(self.gpu_id)
@@ -145,7 +148,7 @@ class Trainer:
         x_sv = torch.nan_to_num(x_sv,nan=0.,posinf=0.,neginf=0.)
         for param in self.model.parameters():
             param.grad = None
-        #optimizer.zero_grad()
+        self.optimizer.zero_grad()
         if not self.args.load_gpu:
             x_pf = x_pf.to(self.gpu_id)
             x_sv = x_sv.to(self.gpu_id)
@@ -212,16 +215,22 @@ class Trainer:
         model_dir = self.outdir
         os.system("mkdir -p ./"+model_dir)
         n_massbins = 20
-    
+        start_epoch = 0
         if self.args.continue_training:
             self.model.load_state_dict(torch.load(self.args.mpath))
             start_epoch = self.args.mpath.split("/")[-1].split("epoch_")[-1].split("_")[0]
             start_epoch = int(start_epoch) + 1
             print(f"Continuing training from epoch {start_epoch}...")
+            
         else:
             start_epoch = 1
+            if not self.args.prepath == None:
+                print('loaded pretrained model')
+                self.model.load_state_dict(torch.load(self.args.prepath))
+           
         end_epoch = max_epochs
-        for epoch in range(self.epochs_run, max_epochs):
+        for epoch in range(start_epoch,max_epochs):
+            epoch = epoch
             self._run_epoch_train(epoch)
             self._run_epoch_val(epoch)
             if self.gpu_id == 0 and epoch % self.save_every == 0:
@@ -255,6 +264,31 @@ class Trainer:
                 testingSingletons.append(jet_features.cpu().detach().numpy())
                 torch.cuda.empty_cache()
                 #break
+        rand_x_pf = torch.randn(10,100,13)
+        
+        if self.args.sv:
+            rand_x_sv = torch.rand(10,5,16)
+            torch.onnx.export(self.model.module,
+                  (rand_x_pf,rand_x_sv),
+                  f"{self.outdir}/"+self.args.mname+".onnx",
+                  export_params=True,
+                  opset_version=opset_version,
+                  do_constant_folding=True,
+                  input_names=('pf','sv'),
+                  output_names=["outputs"],
+                  dynamic_axes={'input' : {0 : 'batch_size'},'output' : {0 : 'batch_size'}},
+            )
+        else: 
+            torch.onnx.export(self.model.module,
+                  rand_x_pf,
+                  f"{self.outdir}/"+self.args.mname+".onnx",
+                  export_params=True,
+                  opset_version=opset_version,
+                  do_constant_folding=True,
+                  input_names='pf',
+                  output_names=["outputs"],
+                  dynamic_axes={'input' : {0 : 'batch_size'},'output' : {0 : 'batch_size'}},
+            )
         self.outdir = self.outdir + '/plots'
         predictions = [item for sublist in predictions for item in sublist]
         testingLabels = [item for sublist in testingLabels for item in sublist]
@@ -262,6 +296,10 @@ class Trainer:
         predictions = np.array(predictions)#.astype(np.float32)
         testingLabels = np.array(testingLabels)
         testingSingletons = np.array(testingSingletons)
+        
+        
+            
+        
     
         os.system("mkdir -p "+self.outdir)
         np.savez(self.outdir+"/predictions.npy", predictions=predictions, labels=testingLabels, singletons=testingSingletons)
@@ -281,9 +319,9 @@ class Trainer:
             utils.sculpting_curves(prob_2prong, testingSingletons[qcd_idxs,:], training_text, self.outdir, self.name, score="Z\'",inverted=True)
     
         else:
-            utils.plot_correlation(predictions[qcd_idxs,0],testingSingletons[qcd_idxs,0], "bb vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "bb_vs_mass")
-            utils.plot_correlation(predictions[qcd_idxs,1],testingSingletons[qcd_idxs,0], "cc vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "cc_vs_mass")
-            utils.plot_correlation(predictions[qcd_idxs,2],testingSingletons[qcd_idxs,0], "qq vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "qq_vs_mass")
+            utils.plot_correlation(predictions[qcd_idxs,0],testingSingletons[qcd_idxs,utils._singleton_labels.index("zpr_fj_msd")], "bb vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "bb_vs_mass")
+            utils.plot_correlation(predictions[qcd_idxs,1],testingSingletons[qcd_idxs,utils._singleton_labels.index("zpr_fj_msd")], "cc vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "cc_vs_mass")
+            utils.plot_correlation(predictions[qcd_idxs,2],testingSingletons[qcd_idxs,utils._singleton_labels.index("zpr_fj_msd")], "qq vs QCD output score","QCD jet $m_{SD}$ (GeV)", np.linspace(0,1,100),np.linspace(40,350,40),self.outdir, "qq_vs_mass")
             prob_bb = predictions[qcd_idxs,0]
             utils.sculpting_curves(prob_bb, testingSingletons[qcd_idxs,:], training_text, self.outdir, self.name, score="bb",inverted=True)
             prob_cc = predictions[qcd_idxs,1]

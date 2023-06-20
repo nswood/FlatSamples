@@ -131,3 +131,56 @@ def all_vs_QCD(output, target):
     #sys.exit(1)
     loss = nn.functional.binary_cross_entropy(output[mask_bb].float(), target[mask_bb].float()) + nn.functional.binary_cross_entropy(output[mask_cc].float(), target[mask_cc].float()) + nn.functional.binary_cross_entropy(output[mask_qq].float(), target[mask_qq].float()) 
     return loss
+
+import torch
+import torch.nn as nn
+
+import torch
+import torch.nn.functional as F
+
+def margin_triplet_loss(embeddings, labels, margin=0.2):
+    # Compute pairwise distances between embeddings
+    labels = torch.sum(labels[:,0:3], dim =1)
+    
+    pairwise_distances = torch.cdist(embeddings, embeddings, p=2)
+    
+    # Initialize variables for storing triplet loss components
+    triplet_loss = 0.0
+    num_triplets = 0
+    
+    # Iterate over each embedding and label
+    for i in range(len(embeddings)):
+        anchor_embedding = embeddings[i]
+        anchor_label = labels[i]
+        
+        # Select positive pairs with the same label as the anchor
+        positive_mask = (labels == anchor_label).float()
+        positive_distances = pairwise_distances[i] * positive_mask
+        
+        # Find the hardest positive sample (maximum distance)
+        hardest_positive_distance = positive_distances.max()
+        
+        # Select negative pairs with different labels from the anchor
+        negative_mask = (labels != anchor_label).float()
+        negative_distances = pairwise_distances[i] * negative_mask
+        
+        # Find the hardest negative sample (minimum distance)
+        hardest_negative_distance = negative_distances.min()
+        
+        # Compute the triplet loss component for the anchor
+        triplet_loss += F.relu(hardest_positive_distance - hardest_negative_distance + margin)
+        num_triplets += 1
+        
+    # Average the triplet loss over the number of triplets
+    if num_triplets > 0:
+        triplet_loss /= num_triplets
+    
+    return triplet_loss
+
+
+def ContrastiveLoss(self, output1, output2, label,margin=1.0):
+    euclidean_distance = nn.functional.pairwise_distance(output1, output2)
+    loss_contrastive = torch.mean((1 - label) * torch.pow(euclidean_distance, 2) +
+                                   (label) * torch.pow(torch.clamp(margin - euclidean_distance, min=0.0), 2))
+    return loss_contrastive
+

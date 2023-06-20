@@ -265,7 +265,7 @@ class OskarTransformer(nn.Module):
         return outputs  # last-layer hidden state, (all hidden states), (all attentions)
 
 class Transformer(nn.Module):
-    def __init__(self, config, name, softmax, sigmoid,sv_branch=False):
+    def __init__(self, config, name, softmax, sigmoid,sv_branch=False,pretrain = False):
         super().__init__()
         #print(config)
         self.relu = gelu_new #nn.ReLU() 
@@ -282,10 +282,12 @@ class Transformer(nn.Module):
         self.softmax = softmax #config
         self.sigmoid = sigmoid
         self.input_bn = nn.BatchNorm1d(config.feature_size)
+        self.pretrain = pretrain
 
         self.embedder = nn.Linear(config.feature_size, config.embedding_size)
         if sv_branch: 
             self.input_bn_sv = nn.BatchNorm1d(config.feature_sv_size)
+            
             self.embedder_sv = nn.Linear(config.feature_sv_size, config.embedding_size)
             #Had to change config.n_out_nodes*2 to config.n_out_nodes in first input to first layer
             self.final_embedder_sv = nn.ModuleList([
@@ -364,7 +366,7 @@ class Transformer(nn.Module):
         #print(x)
         attn_mask = (1 - attn_mask) * -1e9
         if self.config.mname is not None:
-            attn_mask = attn_mask.to(torch.device("cpu"))
+            attn_mask = attn_mask.to(device)
         head_mask = [None] * self.config.num_hidden_layers
 	
 	# Embed x
@@ -427,6 +429,9 @@ class Transformer(nn.Module):
             h = self.final_embedder_sv[2](h)
             h = self.final_embedder_sv[3](h)
             h = self.final_embedder_sv[4](h)
+            if self.pretrain:
+                
+                return h
             h = self.final_embedder_sv[5](h)
             h = self.final_embedder_sv[6](h)
 
@@ -448,6 +453,8 @@ class Transformer(nn.Module):
             h = torch.mean(h,dim=1)
             #print("should not print!")
             h = self.final_embedder[0](h)
+            if self.pretrain:
+                return h
             h = self.final_embedder[1](h)
             h = self.final_embedder[2](h)
 	
