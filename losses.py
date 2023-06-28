@@ -78,6 +78,9 @@ def disco(output, target, mass, LAMBDA_ADV=10.,):
         #print(f"Disco along axis {iO}",disco(output[qcd_idxs,iO],mass[qcd_idxs]))
         #mass_loss += LAMBDA_ADV*disco(output[qcd_idxs,iO],mass[qcd_idxs])
         mass_loss += LAMBDA_ADV*disco(output[:,iO],mass)
+        print(output[:,iO])
+        print(mass)
+        print(mass_loss)
     #    print(f"mass decorr: {mass_loss}")
     #print("perf_loss + mass_loss",perf_loss + mass_loss)
     '''
@@ -86,7 +89,10 @@ def disco(output, target, mass, LAMBDA_ADV=10.,):
     elif output.shape[1] == 2:
         mass_loss = LAMBDA_ADV*(disco(output[qcd_idxs,0], mass[qcd_idxs]) + disco(output[qcd_idxs,1], mass[qcd_idxs]))
     '''
-    return perf_loss + mass_loss
+#     return perf_loss + mass_loss
+    
+    return mass_loss
+
 
 
 def adversarial():

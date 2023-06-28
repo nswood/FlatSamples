@@ -214,7 +214,7 @@ def load_model():
     
     elif args.model=='transformer':
         
-        model = models.Transformer(args,"transformer",_softmax,_sigmoid, args.sv,pretrain = args.pretrain)
+        model = models.Transformer(args,args.mname,_softmax,_sigmoid, args.sv,pretrain = args.pretrain)
     else:
         raise ValueError("Don't understand model ", args.model)
     return model
@@ -232,7 +232,10 @@ def main(save_every: int, total_epochs: int, batch_size: int, loss):
     ddp_setup()
     
     model, optimizer = load_train_objs()
-    outdir = f"./{args.opath}/{model.name.replace(' ','_')}"
+    if args.continue_training:
+        outdir = "/".join(args.mpath.split("/")[:-1])
+    else:    
+        outdir = f"./{args.opath}/{model.name.replace(' ','_')}"
     outdir = utils.makedir(outdir,args.continue_training)
     train_loader, val_loader = load_data()
     trainer = PreTrainer(model, train_loader,val_loader, optimizer, save_every,outdir,loss,total_epochs, args)

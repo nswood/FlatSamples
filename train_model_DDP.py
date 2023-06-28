@@ -71,7 +71,10 @@ p.add_args(
     ('--pt_weight', p.STORE_TRUE), ('--num_max_files', p.INT),
     ('--num_max_particles', p.INT), ('--dr_adj', p.FLOAT),
     ('--beta', p.STORE_TRUE), ('--load_gpu', p.STORE_TRUE),
-    ('--lr_policy'), ('--grad_acc', p.INT), ('--pretrain', p.STORE_TRUE))
+    ('--lr_policy'), ('--grad_acc', p.INT), ('--pretrain', p.STORE_TRUE), 
+    ('--small_feature', p.STORE_TRUE)
+    
+)
 
 #DDP Congigs
 p.add_argument('--gpu', default=None, type=int)
@@ -100,15 +103,24 @@ def ddp_setup():
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 
-
 def load_data():
+   
     if args.load_gpu:
         from dataset_loader_gpu import zpr_loader
         if not args.mpath or (args.mpath and args.continue_training):
-            data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
+            if args.small_feature:
+                data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files,small_feature = args.small_feature,
+                                        pf_size = args.feature_size,sv_size= args.feature_sv_size)
+            else:
+                data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
             train_sampler = torch.utils.data.distributed.DistributedSampler(data_train, shuffle=True)
 
-        data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
+        
+        if args.small_feature:
+            data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files,small_feature = args.small_feature,
+                                    pf_size = args.feature_size,sv_size= args.feature_sv_size)
+        else:
+            data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files) 
         val_sampler = None
         if not args.mpath or (args.mpath and args.continue_training):
             train_loader = DataLoader(data_train, batch_size=args.batchsize,shuffle=(train_sampler is None),
@@ -118,10 +130,18 @@ def load_data():
     else:
         from dataset_loader import zpr_loader
         if not args.mpath or (args.mpath and args.continue_training):
-            data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
+            if args.small_feature:
+                data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files,small_feature = args.small_feature,
+                                        pf_size = args.feature_size,sv_size= args.feature_sv_size)
+            else:
+                data_train = zpr_loader(args.ipath,maxfiles=args.num_max_files) 
             train_sampler = torch.utils.data.distributed.DistributedSampler(data_train, shuffle=True)
             
-        data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
+        if args.small_feature:
+            data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files,small_feature = args.small_feature,
+                                    pf_size = args.feature_size,sv_size= args.feature_sv_size)
+        else:
+            data_val = zpr_loader(args.vpath,maxfiles=args.num_max_files)
         val_sampler = None
         if not args.mpath or (args.mpath and args.continue_training):
             
@@ -238,6 +258,7 @@ def main(save_every: int, total_epochs: int, batch_size: int, loss):
     train_loader, val_loader = load_data()
     trainer = Trainer(model, train_loader,val_loader, optimizer, save_every,outdir,loss,total_epochs, args)
     trainer.train(total_epochs)
+    print('out of training') 
     if int(os.environ["LOCAL_RANK"]) == 0:
         trainer.run_inference(args.plot_text,val_loader)
     if args.run_captum:

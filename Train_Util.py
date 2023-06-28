@@ -206,7 +206,7 @@ class Trainer:
         np.random.seed(max_epochs)
         random.seed(max_epochs)
         
-    
+        
 #         if self.args.distributed: 
 #             train_loader.sampler.set_epoch(nepochs)
           
@@ -227,7 +227,7 @@ class Trainer:
             if not self.args.prepath == None:
                 print('loaded pretrained model')
                 self.model.load_state_dict(torch.load(self.args.prepath))
-           
+        print('in train')
         end_epoch = max_epochs
         for epoch in range(start_epoch,max_epochs):
             epoch = epoch
@@ -264,28 +264,28 @@ class Trainer:
                 testingSingletons.append(jet_features.cpu().detach().numpy())
                 torch.cuda.empty_cache()
                 #break
-        rand_x_pf = torch.randn(10,100,13)
+        rand_x_pf = torch.randn(10,100,13).to(self.gpu_id)
         
         if self.args.sv:
-            rand_x_sv = torch.rand(10,5,16)
-            torch.onnx.export(self.model.module,
-                  (rand_x_pf,rand_x_sv),
-                  f"{self.outdir}/"+self.args.mname+".onnx",
-                  export_params=True,
-                  opset_version=opset_version,
-                  do_constant_folding=True,
-                  input_names=('pf','sv'),
-                  output_names=["outputs"],
-                  dynamic_axes={'input' : {0 : 'batch_size'},'output' : {0 : 'batch_size'}},
-            )
+            rand_x_sv = torch.rand(10,5,16).to(self.gpu_id)
+#             torch.onnx.export(self.model.module,
+#                   (rand_x_pf,rand_x_sv),
+#                   f"{self.outdir}/"+self.args.mname+".onnx",
+#                   export_params=True,
+#                   opset_version=12,
+#                   do_constant_folding=True,
+#                   input_names=['pf','sv'],
+#                   output_names=["outputs"],
+#                   dynamic_axes={'input' : {0 : 'batch_size'},'output' : {0 : 'batch_size'}},
+#             )
         else: 
             torch.onnx.export(self.model.module,
                   rand_x_pf,
                   f"{self.outdir}/"+self.args.mname+".onnx",
                   export_params=True,
-                  opset_version=opset_version,
+                  opset_version=12,
                   do_constant_folding=True,
-                  input_names='pf',
+                  input_names=['pf'],
                   output_names=["outputs"],
                   dynamic_axes={'input' : {0 : 'batch_size'},'output' : {0 : 'batch_size'}},
             )
@@ -297,7 +297,12 @@ class Trainer:
         testingLabels = np.array(testingLabels)
         testingSingletons = np.array(testingSingletons)
         
-        
+        if self.args.plot_features:
+            print("Plotting all features. This might take a few minutes")
+            utils.plot_features(singletonData,labels,utils._singleton_labels,args.opath)
+            utils.plot_features(vertexData,labels,utils._SV_features_labels,args.opath,"SV")
+            utils.plot_features(particleData,labels,utils._p_features_labels,args.opath,"Particle")
+            utils.plot_features(singletonFeatureData,labels,utils._singleton_features_labels,args.opath)
             
         
     

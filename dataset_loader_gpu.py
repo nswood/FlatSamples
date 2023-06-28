@@ -8,12 +8,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class zpr_loader(Dataset):
-    def __init__(self, raw_paths, qcd_only=True, transform=None,maxfiles=None):
+    def __init__(self, raw_paths, small_feature = False, pf_size = 13,sv_size= 16,  qcd_only=True, transform=None,maxfiles=None):
         #super(zpr_loader, self).__init__(raw_paths)
         #self.strides = [0]
         #self.ratio = ratio
+        if sv_size == None:
+            sv_size = 16
+        self.small_feature =small_feature
+        self.pf_size = pf_size
+        self.sv_size = sv_size
         self.raw_paths = sorted(glob.glob(raw_paths+'*h5'))[:maxfiles]
         self.fill_data()
+        
 
         #self.calculate_offsets()
     def calculate_offsets(self):
@@ -62,12 +68,19 @@ class zpr_loader(Dataset):
         self.data_jetfeatures = np.array(self.data_jetfeatures)
         self.data_truthlabel = np.array(self.data_truthlabel)
 
-        print("self.data_features.shape",self.data_features.shape)
+#         print("self.data_features.shape",self.data_features.shape)
      
         self.data_features = torch.cuda.FloatTensor(self.data_features)
         self.data_sv_features = torch.cuda.FloatTensor(self.data_sv_features)
         self.data_jetfeatures = torch.cuda.FloatTensor(self.data_jetfeatures)
         self.data_truthlabel = torch.cuda.FloatTensor(self.data_truthlabel)
+        
+        if self.small_feature:
+            self.data_features = self.data_features[:,:,0:self.pf_size]
+            self.data_sv_features = self.data_sv_features[:,:,0:self.sv_size]
+           
+        
+       
     @property
     def raw_file_names(self):
         raw_files = sorted(glob.glob(osp.join(self.raw_dir, '*.h5')))
@@ -81,6 +94,8 @@ class zpr_loader(Dataset):
         return self.data_jetfeatures.shape[0]#self.strides[-1]
 
     def __getitem__(self, idx):
+            
+           
         x_pf = self.data_features[idx,:,:]
         x_sv = self.data_sv_features[idx,:,:]
         x_jet = self.data_jetfeatures[idx,:]

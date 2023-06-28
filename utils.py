@@ -32,7 +32,13 @@ legend_font = {
         #'weight' : 'normal',
         'size'   : 16
 }
+# branches = ['zpr_PF_pt','zpr_PF_ptrel','zpr_PF_eta','zpr_PF_etarel','zpr_PF_phi', 'zpr_PF_phirel','zpr_PF_d0','zpr_PF_dz',]
+# branches_pid = ['zpr_PF_pdgId']
 
+
+# jet_branches = ['zpr_fj_pt','zpr_fj_eta','zpr_fj_phi','zpr_fj_msd','zpr_fj_n2b1','zpr_fj_particleNetMD_Xbb','zpr_fj_particleNetMD_Xcc','zpr_fj_particleNetMD_Xqq','zpr_fj_particleNetMD_QCD']
+
+# truthlabel_branches = ['zpr_fj_nBtags','zpr_fj_nCtags','zpr_fj_nLtags',]
 
 nbins = 20
 _titles={
@@ -75,14 +81,17 @@ _titles={
   "zpr_SV_pAngle"   :  {"name" : "SV pointing angle" , "bins" : np.linspace(0,3.5,nbins)},
   "zpr_SV_etarel"   :  {"name" : "SV relative $\mathrm{\eta}$", "bins" : np.linspace(-1,1,nbins)},
   "zpr_SV_phirel"   :  {"name" : "SV relative $\mathrm{\phi}$", "bins" : np.linspace(-1,1,nbins)},
-
+  "zpr_SV_eta"   :  {"name" : "SV $\mathrm{\eta}$", "bins" : np.linspace(-1,1,nbins)},
+  "zpr_SV_phi"   :  {"name" : "SV $\mathrm{\phi}$", "bins" : np.linspace(-1,1,nbins)},
+  "zpr_SV_pt"   :  {"name" : "SV $\mathrm{p_t}$", "bins" : np.linspace(0,1,nbins)},
 
 }
+
 _singleton_labels = ['zpr_fj_pt','zpr_fj_eta','zpr_fj_phi','zpr_fj_msd','zpr_fj_n2b1','zpr_fj_particleNetMD_Xbb','zpr_fj_particleNetMD_Xcc','zpr_fj_particleNetMD_Xqq','zpr_fj_particleNetMD_QCD']
 #_singleton_labels=["zpr_fj_msd","zpr_fj_pt","zpr_fj_eta","zpr_fj_phi","zpr_fj_n2b1","zpr_fj_tau21","zpr_fj_particleNetMD_QCD", "zpr_fj_particleNetMD_Xbb", "zpr_fj_particleNetMD_Xcc", "zpr_fj_particleNetMD_Xqq","zpr_fj_nBHadrons","zpr_fj_nCHadrons", "zpr_genAK8Jet_mass","zpr_genAK8Jet_pt","zpr_genAK8Jet_eta","zpr_genAK8Jet_phi", "zpr_genAK8Jet_partonFlavour","zpr_genAK8Jet_hadronFlavour", "zpr_fj_nBtags","zpr_fj_nCtags","zpr_fj_nLtags","zpr_fj_nparts"]
 _singleton_features_labels=["zpr_fj_jetNSecondaryVertices","zpr_fj_jetNTracks","zpr_fj_tau1_trackEtaRel_0","zpr_fj_tau1_trackEtaRel_1","zpr_fj_tau1_trackEtaRel_2","zpr_fj_tau2_trackEtaRel_0","zpr_fj_tau2_trackEtaRel_1","zpr_fj_tau2_trackEtaRel_3","zpr_fj_tau1_flightDistance2dSig","zpr_fj_tau2_flightDistance2dSig","zpr_fj_tau1_vertexDeltaR","zpr_fj_tau1_vertexEnergyRatio","zpr_fj_tau2_vertexEnergyRatio","zpr_fj_tau1_vertexMass","zpr_fj_tau2_vertexMass","zpr_fj_trackSip2dSigAboveBottom_0","zpr_fj_trackSip2dSigAboveBottom_1","zpr_fj_trackSip2dSigAboveCharm","zpr_fj_trackSip3dSig_0","zpr_fj_trackSip3dSig_0","zpr_fj_tau1_trackSip3dSig_1","zpr_fj_trackSip3dSig_1","zpr_fj_tau2_trackSip3dSig_0","zpr_fj_tau2_trackSip3dSig_1","zpr_fj_trackSip3dSig_2","zpr_fj_trackSip3dSig_3","zpr_fj_z_ratio"]
 _p_features_labels=["zpr_PF_ptrel","zpr_PF_etarel","zpr_PF_phirel","zpr_PF_dz","zpr_PF_d0","zpr_PF_pdgId"]
-_SV_features_labels=["zpr_SV_mass","zpr_SV_dlen","zpr_SV_dlenSig","zpr_SV_dxy","zpr_SV_dxySig","zpr_SV_chi2","zpr_SV_ptrel","zpr_SV_x","zpr_SV_y","zpr_SV_z","zpr_SV_pAngle","zpr_SV_etarel","zpr_SV_phirel"]
+_SV_features_labels=["zpr_SV_mass","zpr_SV_dlen","zpr_SV_dlenSig","zpr_SV_dxy","zpr_SV_dxySig","zpr_SV_chi2","zpr_SV_ptrel","zpr_SV_x","zpr_SV_y","zpr_SV_z","zpr_SV_pAngle","zpr_SV_etarel","zpr_SV_phirel","zpr_SV_eta","zpr_SV_phi","zpr_SV_pt"]
 
 def reshape_inputs(array, n_features):
     array = np.split(array, n_features, axis=-1)
@@ -183,7 +192,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                 fig,ax = plt.subplots() 
                 ax = axis_settings(ax)
                 for ilabel in range(labels.shape[1]):
-                    tmp = array[labels[:,ilabel].astype(bool),ipart,ifeat]
+                    tmp = array[labels[:,ilabel].bool(),ipart,ifeat]
                     try: 
                         x_label = _titles[feature_labels[ifeat]]["name"]
                         bins    = _titles[feature_labels[ifeat]]["bins"]
@@ -195,7 +204,7 @@ def plot_features(array, labels, feature_labels, outdir, text_label=None):
                         histtype='step',alpha=0.7, 
                         density=True,
                     )
-                    ax.text(0.63,0.85,text_label+" "+str(ipart),transform=ax.transAxes,)
+                    #ax.text(0.63,0.85,text_label+" "+str(ipart),transform=ax.transAxes,)
                     ax.set_yscale('log')
                     ax = axis_settings(ax)
                     ax.set_xlabel(x_label,horizontalalignment='right',x=1.0,**axis_font)
@@ -322,7 +331,7 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
         if all_vs_QCD:
             fpr_l.append([ np.sum(response_l[-1][ib:])/np.sum(response_l[-1]) for ib in range(len(nn_bins),0,-1) ])
             fpr_label_l.append("QCD")
-
+        help_str = ''
         plt.clf()
         fig,ax = plt.subplots()
         hep.cms.label("Preliminary",rlabel=rlabel, data=False)
@@ -332,9 +341,13 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
             tpr = np.round_(tpr,decimals=4)
             if QCD_only and "QCD" not in fpr_label_l[i]: continue
             ax.plot(fpr_l[i], tpr, 
-                    label = "{process} vs {class_name} (auc={auc:.2f})".format(process=fpr_label_l[i],class_name=processes[ilabel],auc=auc(fpr, tpr)),
+                    label = "{process} vs {class_name} (auc={auc:.4f})".format(process=fpr_label_l[i],class_name=processes[ilabel],auc=auc(fpr, tpr)),
                     lw=2.0,
                    )
+            x_target = 0.05
+            index = np.abs(np.array(fpr_l[i]) - x_target).argmin()
+            y_target = tpr[index]
+            help_str = help_str + f"{fpr_label_l[i]} vs {processes[ilabel]}: {y_target} \n"
             if "QCD" in fpr_label_l[i]:
                 np.savez(opath+'/'+processes[ilabel]+'_vsQCD.npz',tpr=tpr,fpr=fpr_l[i])
         ax.set_xlabel("False positive rate",horizontalalignment='right',x=1.0,**axis_font)
@@ -344,6 +357,8 @@ def plot_roc_curve(testLabels, testPredictions, training_text, opath, modelName,
         ax.axvline(x=0.05,ls='--',lw=1.0,c='magenta')
         ax.text(0.63,0.2,"\n".join(training_text),transform=ax.transAxes,**inlay_font)
         ax.legend(loc="lower right",prop=legend_font)
+        
+        plt.text(0.8, 0.4, help_str,fontsize=12, ha='center', va='bottom')
         plt.tight_layout()
         plt.savefig(opath+"/%s_roc_class_%s%s.png"%(modelName,ilabel,"QCD-only" if QCD_only else ""))
         plt.savefig(opath+"/%s_roc_class_%s%s.pdf"%(modelName,ilabel,"QCD-only" if QCD_only else "" ))

@@ -218,18 +218,24 @@ class OskarLayerGroup(nn.Module):
 
 
 class OskarTransformer(nn.Module):
-    def __init__(self, config,isSV=False):
+    def __init__(self, config,first = False,  isSV=False):
         super().__init__()
         self.config = config
+        self.first = first
         self.output_attentions = config.output_attentions
-        self.output_hidden_states = config.output_hidden_states
+        self.output_hidden_states = config.hidden_size
         if isSV:
-            self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, int(config.hidden_size/2))
+            self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, int(self.output_hidden_states/2))
         else:
-            self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, config.hidden_size)
+            if first:
+                self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, config.hidden_size)
+            else:
+                self.embedding_hidden_mapping_in = nn.Linear(config.hidden_size, config.hidden_size)
         self.albert_layer_groups = nn.ModuleList([OskarLayerGroup(config,isSV) for _ in range(config.num_hidden_groups)])
-
+        
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
+        
+        #Problem here with matching
         hidden_states = self.embedding_hidden_mapping_in(hidden_states)
 
         all_attentions = ()
@@ -283,7 +289,7 @@ class Transformer(nn.Module):
         self.sigmoid = sigmoid
         self.input_bn = nn.BatchNorm1d(config.feature_size)
         self.pretrain = pretrain
-
+        
         self.embedder = nn.Linear(config.feature_size, config.embedding_size)
         if sv_branch: 
             self.input_bn_sv = nn.BatchNorm1d(config.feature_sv_size)
@@ -291,16 +297,32 @@ class Transformer(nn.Module):
             self.embedder_sv = nn.Linear(config.feature_sv_size, config.embedding_size)
             #Had to change config.n_out_nodes*2 to config.n_out_nodes in first input to first layer
             self.final_embedder_sv = nn.ModuleList([
-                nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes*2)),
-                nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes*4)),
-                nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*4)),
-                nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*2)),
-                nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes)),
-                nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes)),
-                nn.Linear(int(config.n_out_nodes), config.nclasses),
-                ])
+                nn.Linear(config.n_out_nodes, int(config.n_out_nodes/2)),
+                nn.Linear(int(config.n_out_nodes/2), int(config.n_out_nodes/4)),
+                nn.Linear(int(config.n_out_nodes/4), config.nclasses),
+            ])
+
+#             self.final_embedder_sv = nn.ModuleList([
+#                 nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes*2)),
+#                 nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes*4)),
+#                 nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*4)),
+#                 nn.Linear(int(config.n_out_nodes*4), int(config.n_out_nodes*2)),
+#                 nn.Linear(int(config.n_out_nodes*2), int(config.n_out_nodes)),
+#                 nn.Linear(int(config.n_out_nodes), int(config.n_out_nodes)),
+#                 nn.Linear(int(config.n_out_nodes), config.nclasses),
+#                 ])
             self.embed_bn_sv = nn.BatchNorm1d(config.embedding_size)
-            self.encoders_sv = nn.ModuleList([OskarTransformer(config,False) for _ in range(config.num_encoders)])
+            self.encoders_sv = nn.ModuleList()
+            for i in range(config.num_encoders):
+                
+                if i == 0:
+                    print('should be first')
+                    self.encoders_sv.append(OskarTransformer(config,True,True))
+                else:
+                    self.encoders_sv.append(OskarTransformer(config,False,True))
+                
+            
+            
             self.decoders_sv = nn.ModuleList([
                                            nn.Linear(int(config.hidden_size), int(config.hidden_size)),
                                            nn.Linear(int(config.hidden_size), int(config.hidden_size)),
@@ -320,7 +342,15 @@ class Transformer(nn.Module):
 
         self.embed_bn = nn.BatchNorm1d(config.embedding_size)
 
-        self.encoders = nn.ModuleList([OskarTransformer(config) for _ in range(config.num_encoders)])
+        self.encoders = nn.ModuleList()
+        for i in range(config.num_encoders):
+                
+            if i == 0:
+
+                self.encoders.append(OskarTransformer(config,True,False))
+            else:
+                self.encoders.append(OskarTransformer(config,False,False))
+        
         self.decoders = nn.ModuleList([
                                        nn.Linear(config.hidden_size, config.hidden_size),
                                        nn.Linear(config.hidden_size, config.hidden_size),
@@ -370,12 +400,14 @@ class Transformer(nn.Module):
         head_mask = [None] * self.config.num_hidden_layers
 	
 	# Embed x
+        
         x = self.input_bn(x.permute(0, 2, 1)).permute(0, 2, 1)
 
         h = self.embedder(x)
+        
         h = torch.relu(h)
         h = self.embed_bn(h.permute(0, 2, 1)).permute(0, 2, 1)
-	
+        
 	# If sv not None, embed sv and concat to x
         if sv is not None:
             
@@ -437,6 +469,7 @@ class Transformer(nn.Module):
 
         else:
 	    # shape is now 100 x embedding size 
+            
             for e in self.encoders:
             #print(h,attn_mask,head_mask)
             	h = e(h, attn_mask, head_mask)[0]

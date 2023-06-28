@@ -7,10 +7,15 @@ from torch.utils.data.dataset import Dataset  # For custom datasets
 
 
 class zpr_loader(Dataset):
-    def __init__(self, raw_paths, qcd_only=True, transform=None, maxfiles=None):
+    def __init__(self, raw_paths, small_feature = False, pf_size = 13,sv_size= 16,  qcd_only=True, transform=None,maxfiles=None):
         #super(zpr_loader, self).__init__(raw_paths)
         self.raw_paths = sorted(glob.glob(raw_paths+'*h5'))[:maxfiles]
+       
+        self.small_feature =small_feature
+        self.pf_size = pf_size
+        self.sv_size = sv_size
         self.fill_data()
+        
     def calculate_offsets(self):
         for path in self.raw_paths:
             
@@ -63,6 +68,10 @@ class zpr_loader(Dataset):
         self.data_sv_features = torch.FloatTensor(self.data_sv_features)
         self.data_jetfeatures = torch.FloatTensor(self.data_jetfeatures)
         self.data_truthlabel = torch.FloatTensor(self.data_truthlabel)
+        
+        if self.small_feature:
+            self.data_features = self.data_features[:,:,0:self.pf_size]
+            self.data_sv_features = self.data_sv_features[:,:,0:self.sv_size]
     @property
     def raw_file_names(self):
         raw_files = sorted(glob.glob(osp.join(self.raw_dir, '*.h5')))
