@@ -31,7 +31,7 @@ torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transf
 ### Training with Secondary Vertices 
 We utilize the flatg '--sv' to designate we using secondary vertices. If '--sv' is specified you must specify '--feature_sv_size', the number of data features per sv. 
 '''python 
-torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transformer --nepochs 200 --ipath [INSERT YOUR TRAINING PATH] --vpath [INSERT YOUR VALIDATION PATH] --opath transformer_four_types --nparts 100 --nclasses 4 --batchsize 2000 --embedding_size 32 --hidden_size 32 --num_attention_heads 4 --intermediate_size 32 --num_hidden_layers 4 --feature_size 13 --nclasses 4 --num_encoders 2 --n_out_nodes 20 --plot_text "Transformer; No_SV_No_Pre" --num_max_files 200 --lr 2e-3 --mname "No_SV_No_Pre" --sv --feature_sv_size 16 
+torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transformer --nepochs 200 --ipath [INSERT YOUR TRAINING PATH] --vpath [INSERT YOUR VALIDATION PATH] --opath transformer_four_types --nparts 100 --nclasses 4 --batchsize 2000 --embedding_size 32 --hidden_size 32 --num_attention_heads 4 --intermediate_size 32 --num_hidden_layers 4 --feature_size 13 --nclasses 4 --num_encoders 2 --n_out_nodes 20 --plot_text "Transformer; SV_No_Pre" --num_max_files 200 --lr 2e-3 --mname "SV_No_Pre" --sv --feature_sv_size 16 
 '''
 
 ## Arguments
