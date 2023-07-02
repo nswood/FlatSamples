@@ -11,15 +11,36 @@ IN_FlatTau_v1p1.py is a basic interaction network that will train directly on th
 # Updates
 The code has been restructured from Jeff Krupa's initial version to accommodate torch-distributed data parallel multi-GPU training.  
 
-To train models (primarily transformers), you will run 'train_model_DDP.py'. This file takes the following arguments: 
+To train models (primarily transformers), you will run 'train_model_DDP.py'. This script takes many possible arguments listed at the bottom of this page.
+
+## Example code
+Here are several examples of situations using the 'train_model_DDP.py' script:
+We utilize torchrun as we have built this script to run with torch-distributed data parallel multi-GPU training. The only input parameter for torch DDP is 'nproc_per_node'. This value should be set to the number of available GPUs.
+
+### Training 
+'''python
+torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transformer --nepochs 100 --ipath [INSERT YOUR TRAINING PATH] --vpath [INSERT YOUR VALIDATION PATH] --opath transformer_four_types --nparts 100 --nclasses 4 --batchsize 2000 --embedding_size 32 --hidden_size 32 --num_attention_heads 4 --intermediate_size 32 --num_hidden_layers 4 --feature_size 13 --nclasses 4 --num_encoders 2 --n_out_nodes 20 --plot_text "Transformer; No_SV_No_Pre" --num_max_files 200 --lr 2e-3 --mname "No_SV_No_Pre"
+'''
+
+### Continuing Training from Specified Epoch
+We utilize the flatg '--continue_training' to designate we are loading a model and continuing training. If '--continue_training' is specified you must specify '--mpath', the path to your model. 
+'''python 
+torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transformer --nepochs 200 --ipath [INSERT YOUR TRAINING PATH] --vpath [INSERT YOUR VALIDATION PATH] --opath transformer_four_types --nparts 100 --nclasses 4 --batchsize 2000 --embedding_size 32 --hidden_size 32 --num_attention_heads 4 --intermediate_size 32 --num_hidden_layers 4 --feature_size 13 --nclasses 4 --num_encoders 2 --n_out_nodes 20 --plot_text "Transformer; No_SV_No_Pre" --num_max_files 200 --lr 2e-3 --mname "No_SV_No_Pre" --continue_training --mpath [INSERT PATH TO YOUR MODEL]
+'''
+
+### Training with Secondary Vertices 
+We utilize the flatg '--sv' to designate we using secondary vertices. If '--sv' is specified you must specify '--feature_sv_size', the number of data features per sv. 
+'''python 
+torchrun --nproc_per_node=4 train_model_DDP.py --loss categorical --model transformer --nepochs 200 --ipath [INSERT YOUR TRAINING PATH] --vpath [INSERT YOUR VALIDATION PATH] --opath transformer_four_types --nparts 100 --nclasses 4 --batchsize 2000 --embedding_size 32 --hidden_size 32 --num_attention_heads 4 --intermediate_size 32 --num_hidden_layers 4 --feature_size 13 --nclasses 4 --num_encoders 2 --n_out_nodes 20 --plot_text "Transformer; No_SV_No_Pre" --num_max_files 200 --lr 2e-3 --mname "No_SV_No_Pre" --sv --feature_sv_size 16 
+'''
 
 ## Arguments
 ### Paths
 - `--ipath` (string): Specify the input path.
 - `--vpath` (string): Specify the validation path.
-- `--opath` (string): Specify the output path.
-- `--mpath` (string): Specify the model path.
-- `--prepath` (string): Specify the pre-trained model path.
+- `--opath` (string): Specify the output directory path. Will create a directory if there is not already one
+- `--mpath` (string): Specify the model path if you are continuing training from a prior model.
+- `--prepath` (string): Specify the pre-trained model path if you have a pre-trained model to load initially.
 
 ### Data
 - `--mini_dataset` (boolean flag): Use a mini dataset.
@@ -37,18 +58,19 @@ To train models (primarily transformers), you will run 'train_model_DDP.py'. Thi
 - `--num_max_files` (integer): Specify the maximum number of files.
 - `--num_max_particles` (integer): Specify the maximum number of particles.
 
+It is beneficial to examine this list in parallel with the 'models.py' file. 
 ### Model Parameters
-- `--mname` (string): Specify the name of the model.
-- `--loss` (string): Specify the type of loss function to use.
-- `--model` (string): Specify the model architecture.
+- `--mname` (string): Specify the name of the model. If model names are repeated, they will be named by the time.
+- `--loss` (string): Specify the type of loss function to use. For jet classification 'categorical' is recommended. 
+- `--model` (string): Specify the model architecture. To use the transformer simply put 'transformer'
 - `--nepochs` (integer): Specify the number of epochs for training.
 - `--De` (float): Specify the value for parameter De.
 - `--Do` (float): Specify the value for parameter Do.
 - `--hidden` (float): Specify the hidden size.
-- `--nparts` (integer): Specify the number of parts.
-- `--LAMBDA_ADV` (float): Specify the value for parameter LAMBDA_ADV.
-- `--nclasses` (integer): Specify the number of classes.
-- `--temperature` (float): Specify the temperature value.
+- `--nparts` (integer): Specify the number of parts. 
+- `--LAMBDA_ADV` (float): Specify the value for parameter LAMBDA_ADV. Parameter for decorrelation loss.
+- `--nclasses` (integer): Specify the number of data classes. 
+- `--temperature` (float): Specify the temperature value. Parameter for SimCLR contrastive loss. 
 - `--n_out_nodes` (integer): Specify the number of output nodes.
 - `--num_encoders` (integer): Specify the number of encoders.
 - `--embedding_size` (integer): Specify the embedding size.
